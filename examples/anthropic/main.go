@@ -13,14 +13,23 @@ import (
 
 func main() {
 	// Initialize Payloop client
-	client, err := payloop.New(payloop.WithAPIKey(os.Getenv("PAYLOOP_API_KEY")))
+	payloopClient, err := payloop.New(payloop.WithAPIKey(os.Getenv("PAYLOOP_API_KEY")))
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer client.Close()
+	defer payloopClient.Close()
 
-	// Set attribution to track costs by user
-	client, err = client.SetAttribution(payloop.Attribution{
+	// Get wrapped HTTP client for Anthropic
+	httpClient := payloopClient.HTTPClient(payloop.ProviderAnthropic)
+
+	// Create Anthropic client with your own configuration
+	anthropicClient := anthropic.NewClient(
+		option.WithHTTPClient(httpClient),
+		option.WithAPIKey(os.Getenv("ANTHROPIC_API_KEY")),
+	)
+
+	// Set attribution to track costs by user (affects all future requests)
+	err = payloopClient.SetAttribution(&payloop.Attribution{
 		Parent: payloop.AttributionEntity{
 			ID:   "user-456",
 			Name: "Jane Smith",
@@ -29,12 +38,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	// Register Anthropic client
-	anthropicClient := client.RegisterAnthropic(
-		context.Background(),
-		option.WithAPIKey(os.Getenv("ANTHROPIC_API_KEY")),
-	)
 
 	// Use Anthropic as normal - analytics tracked automatically
 	message, err := anthropicClient.Messages.New(context.Background(), anthropic.MessageNewParams{
@@ -56,15 +59,19 @@ func main() {
 		}
 	}
 
-	// Create a new transaction for the next request
-	newTxClient := client.NewTransaction()
+	// Update attribution for a different user (affects same anthropicClient)
+	err = payloopClient.SetAttribution(&payloop.Attribution{
+		Parent: payloop.AttributionEntity{
+			ID:   "user-789",
+			Name: "Bob Johnson",
+		},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	anthropicClient2 := newTxClient.WrapAnthropicClient(
-		context.Background(),
-		os.Getenv("ANTHROPIC_API_KEY"),
-	)
-
-	message2, err := anthropicClient2.Messages.New(context.Background(), anthropic.MessageNewParams{
+	// This request will be attributed to Bob Johnson
+	message2, err := anthropicClient.Messages.New(context.Background(), anthropic.MessageNewParams{
 		Model:     anthropic.ModelClaudeSonnet4_5_20250929,
 		MaxTokens: 1024,
 		Messages: []anthropic.MessageParam{

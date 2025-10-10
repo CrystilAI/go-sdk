@@ -13,14 +13,9 @@ import (
 
 // tracingTransport wraps http.RoundTripper to capture LLM calls.
 type tracingTransport struct {
-	base        http.RoundTripper
-	collector   *collector
-	cfg         *config
-	txID        string
-	attribution *Attribution
-	provider    string
-	title       string
-	version     string
+	base     http.RoundTripper
+	client   *Client
+	provider Provider
 }
 
 // RoundTrip executes the request and captures analytics.
@@ -48,13 +43,8 @@ func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		// Wrap response body with streaming handler
 		resp.Body = newStreamingResponseBody(
 			resp.Body,
-			t.collector,
-			t.cfg,
-			t.txID,
-			t.attribution,
+			t.client,
 			t.provider,
-			t.title,
-			t.version,
 			reqBody,
 			start,
 			req.Context(),
@@ -69,7 +59,7 @@ func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 
 		// Build and send analytics payload async
 		payload := t.buildPayload(reqBody, respBody, start, time.Now())
-		t.collector.SendAsync(req.Context(), payload)
+		t.client.collector.SendAsync(req.Context(), payload)
 	}
 
 	return resp, nil
@@ -88,19 +78,19 @@ func (t *tracingTransport) buildPayload(reqBody, respBody []byte, start, end tim
 		_ = json.Unmarshal(respBody, &response)
 	}
 
-	// Build attribution for payload
+	// Build attribution for payload (read from client dynamically)
 	var attr interface{}
-	if t.attribution != nil {
+	if t.client.attribution != nil {
 		attr = map[string]interface{}{
 			"parent": map[string]interface{}{
-				"id":   t.attribution.Parent.ID,
-				"name": t.attribution.Parent.Name,
+				"id":   t.client.attribution.Parent.ID,
+				"name": t.client.attribution.Parent.Name,
 			},
 		}
-		if t.attribution.Subsidiary != nil {
+		if t.client.attribution.Subsidiary != nil {
 			attr.(map[string]interface{})["subsidiary"] = map[string]interface{}{
-				"id":   t.attribution.Subsidiary.ID,
-				"name": t.attribution.Subsidiary.Name,
+				"id":   t.client.attribution.Subsidiary.ID,
+				"name": t.client.attribution.Subsidiary.Name,
 			}
 		}
 	}
@@ -109,16 +99,16 @@ func (t *tracingTransport) buildPayload(reqBody, respBody []byte, start, end tim
 		Attribution: attr,
 		Conversation: internal.Conversation{
 			Client: internal.ClientInfo{
-				Provider: t.provider,
-				Title:    t.title,
-				Version:  t.version,
+				Provider: "",
+				Title:    string(t.provider),
+				Version:  "",
 			},
 			Query:    query,
 			Response: response,
 		},
 		Meta: internal.Meta{
 			API: internal.APIInfo{
-				Key: t.cfg.apiKey,
+				Key: t.client.cfg.apiKey,
 			},
 			FNFG: internal.FNFGInfo{
 				Exc:    nil,
@@ -126,7 +116,7 @@ func (t *tracingTransport) buildPayload(reqBody, respBody []byte, start, end tim
 			},
 			SDK: internal.SDKInfo{
 				Client:  "go",
-				Version: t.cfg.version,
+				Version: t.client.cfg.version,
 			},
 		},
 		Time: internal.TimeInfo{
@@ -134,7 +124,7 @@ func (t *tracingTransport) buildPayload(reqBody, respBody []byte, start, end tim
 			End:   end,
 		},
 		Tx: internal.Transaction{
-			UUID: t.txID,
+			UUID: t.client.txID,
 		},
 	}
 }

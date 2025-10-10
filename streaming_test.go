@@ -77,13 +77,8 @@ func TestStreamingResponseBodyRead(t *testing.T) {
 
 	srb := newStreamingResponseBody(
 		reader,
-		client.collector,
-		client.cfg,
-		"test-tx-id",
-		nil,
-		"",
-		"openai",
-		"",
+		client,
+		ProviderOpenAI,
 		[]byte(`{"model":"gpt-4","stream":true}`),
 		time.Now(),
 		context.Background(),
@@ -120,7 +115,7 @@ func TestReconstructOpenAI(t *testing.T) {
 	defer client.Close()
 
 	srb := &streamingResponseBody{
-		title: "openai",
+		provider: ProviderOpenAI,
 	}
 
 	chunks := []map[string]interface{}{
@@ -189,7 +184,7 @@ func TestReconstructOpenAI(t *testing.T) {
 
 func TestReconstructAnthropic(t *testing.T) {
 	srb := &streamingResponseBody{
-		title: "anthropic",
+		provider: ProviderAnthropic,
 	}
 
 	chunks := []map[string]interface{}{
@@ -244,7 +239,7 @@ func TestReconstructAnthropic(t *testing.T) {
 
 func TestReconstructGoogle(t *testing.T) {
 	srb := &streamingResponseBody{
-		title: "google",
+		provider: ProviderGoogle,
 	}
 
 	chunks := []map[string]interface{}{

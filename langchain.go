@@ -13,46 +13,36 @@ import (
 
 // langChainHandler is a LangChain callback handler that tracks LLM calls with Payloop.
 type langChainHandler struct {
-	collector   *collector
-	cfg         *config
-	txID        string
-	attribution *Attribution
-	startTime   map[string]time.Time
-	sendFn      func(context.Context, internal.Payload)
+	client    *Client
+	startTime map[string]time.Time
 }
 
 // newLangChainHandler creates a new Payloop callback handler for LangChain.
-func newLangChainHandler(collector *collector, cfg *config, txID string, attr *Attribution) *langChainHandler {
-	h := &langChainHandler{
-		collector:   collector,
-		cfg:         cfg,
-		txID:        txID,
-		attribution: attr,
-		startTime:   make(map[string]time.Time),
+func newLangChainHandler(client *Client) *langChainHandler {
+	return &langChainHandler{
+		client:    client,
+		startTime: make(map[string]time.Time),
 	}
-	// Default sendFn to use the collector
-	h.sendFn = collector.SendAsync
-	return h
 }
 
 // HandleLLMStart is called when an LLM starts processing.
 func (h *langChainHandler) HandleLLMStart(ctx context.Context, prompts []string) {
-	h.startTime[h.txID] = time.Now()
+	h.startTime[h.client.txID] = time.Now()
 }
 
 // HandleLLMGenerateContentStart is called when content generation starts.
 func (h *langChainHandler) HandleLLMGenerateContentStart(ctx context.Context, ms []llms.MessageContent) {
-	h.startTime[h.txID] = time.Now()
+	h.startTime[h.client.txID] = time.Now()
 }
 
 // HandleLLMEnd is called when an LLM finishes processing.
 func (h *langChainHandler) HandleLLMEnd(ctx context.Context, result map[string]any) {
 	endTime := time.Now()
-	startTime := h.startTime[h.txID]
+	startTime := h.startTime[h.client.txID]
 	if startTime.IsZero() {
 		startTime = endTime // Fallback if start wasn't tracked
 	}
-	delete(h.startTime, h.txID)
+	delete(h.startTime, h.client.txID)
 
 	// Build query and response from result map
 	query := make(map[string]interface{})
@@ -63,19 +53,19 @@ func (h *langChainHandler) HandleLLMEnd(ctx context.Context, result map[string]a
 		response[k] = v
 	}
 
-	// Build attribution for payload
+	// Build attribution for payload (read from client dynamically)
 	var attr interface{}
-	if h.attribution != nil {
+	if h.client.attribution != nil {
 		attr = map[string]interface{}{
 			"parent": map[string]interface{}{
-				"id":   h.attribution.Parent.ID,
-				"name": h.attribution.Parent.Name,
+				"id":   h.client.attribution.Parent.ID,
+				"name": h.client.attribution.Parent.Name,
 			},
 		}
-		if h.attribution.Subsidiary != nil {
+		if h.client.attribution.Subsidiary != nil {
 			attr.(map[string]interface{})["subsidiary"] = map[string]interface{}{
-				"id":   h.attribution.Subsidiary.ID,
-				"name": h.attribution.Subsidiary.Name,
+				"id":   h.client.attribution.Subsidiary.ID,
+				"name": h.client.attribution.Subsidiary.Name,
 			}
 		}
 	}
@@ -94,7 +84,7 @@ func (h *langChainHandler) HandleLLMEnd(ctx context.Context, result map[string]a
 		},
 		Meta: internal.Meta{
 			API: internal.APIInfo{
-				Key: h.cfg.apiKey,
+				Key: h.client.cfg.apiKey,
 			},
 			FNFG: internal.FNFGInfo{
 				Exc:    nil,
@@ -102,7 +92,7 @@ func (h *langChainHandler) HandleLLMEnd(ctx context.Context, result map[string]a
 			},
 			SDK: internal.SDKInfo{
 				Client:  "go",
-				Version: h.cfg.version,
+				Version: h.client.cfg.version,
 			},
 		},
 		Time: internal.TimeInfo{
@@ -110,21 +100,21 @@ func (h *langChainHandler) HandleLLMEnd(ctx context.Context, result map[string]a
 			End:   endTime,
 		},
 		Tx: internal.Transaction{
-			UUID: h.txID,
+			UUID: h.client.txID,
 		},
 	}
 
-	h.sendFn(ctx, payload)
+	h.client.collector.SendAsync(ctx, payload)
 }
 
 // HandleLLMGenerateContentEnd is called when content generation finishes.
 func (h *langChainHandler) HandleLLMGenerateContentEnd(ctx context.Context, response *llms.ContentResponse) {
 	endTime := time.Now()
-	startTime := h.startTime[h.txID]
+	startTime := h.startTime[h.client.txID]
 	if startTime.IsZero() {
 		startTime = endTime
 	}
-	delete(h.startTime, h.txID)
+	delete(h.startTime, h.client.txID)
 
 	// Build query from content response
 	query := make(map[string]interface{})
@@ -150,19 +140,19 @@ func (h *langChainHandler) HandleLLMGenerateContentEnd(ctx context.Context, resp
 		responseMap["choices"] = choices
 	}
 
-	// Build attribution for payload
+	// Build attribution for payload (read from client dynamically)
 	var attr interface{}
-	if h.attribution != nil {
+	if h.client.attribution != nil {
 		attr = map[string]interface{}{
 			"parent": map[string]interface{}{
-				"id":   h.attribution.Parent.ID,
-				"name": h.attribution.Parent.Name,
+				"id":   h.client.attribution.Parent.ID,
+				"name": h.client.attribution.Parent.Name,
 			},
 		}
-		if h.attribution.Subsidiary != nil {
+		if h.client.attribution.Subsidiary != nil {
 			attr.(map[string]interface{})["subsidiary"] = map[string]interface{}{
-				"id":   h.attribution.Subsidiary.ID,
-				"name": h.attribution.Subsidiary.Name,
+				"id":   h.client.attribution.Subsidiary.ID,
+				"name": h.client.attribution.Subsidiary.Name,
 			}
 		}
 	}
@@ -181,7 +171,7 @@ func (h *langChainHandler) HandleLLMGenerateContentEnd(ctx context.Context, resp
 		},
 		Meta: internal.Meta{
 			API: internal.APIInfo{
-				Key: h.cfg.apiKey,
+				Key: h.client.cfg.apiKey,
 			},
 			FNFG: internal.FNFGInfo{
 				Exc:    nil,
@@ -189,7 +179,7 @@ func (h *langChainHandler) HandleLLMGenerateContentEnd(ctx context.Context, resp
 			},
 			SDK: internal.SDKInfo{
 				Client:  "go",
-				Version: h.cfg.version,
+				Version: h.client.cfg.version,
 			},
 		},
 		Time: internal.TimeInfo{
@@ -197,37 +187,37 @@ func (h *langChainHandler) HandleLLMGenerateContentEnd(ctx context.Context, resp
 			End:   endTime,
 		},
 		Tx: internal.Transaction{
-			UUID: h.txID,
+			UUID: h.client.txID,
 		},
 	}
 
-	h.sendFn(ctx, payload)
+	h.client.collector.SendAsync(ctx, payload)
 }
 
 // HandleLLMError is called when an LLM encounters an error.
 func (h *langChainHandler) HandleLLMError(ctx context.Context, err error) {
 	endTime := time.Now()
-	startTime := h.startTime[h.txID]
+	startTime := h.startTime[h.client.txID]
 	if startTime.IsZero() {
 		startTime = endTime
 	}
-	delete(h.startTime, h.txID)
+	delete(h.startTime, h.client.txID)
 
 	errMsg := err.Error()
 
-	// Build attribution for payload
+	// Build attribution for payload (read from client dynamically)
 	var attr interface{}
-	if h.attribution != nil {
+	if h.client.attribution != nil {
 		attr = map[string]interface{}{
 			"parent": map[string]interface{}{
-				"id":   h.attribution.Parent.ID,
-				"name": h.attribution.Parent.Name,
+				"id":   h.client.attribution.Parent.ID,
+				"name": h.client.attribution.Parent.Name,
 			},
 		}
-		if h.attribution.Subsidiary != nil {
+		if h.client.attribution.Subsidiary != nil {
 			attr.(map[string]interface{})["subsidiary"] = map[string]interface{}{
-				"id":   h.attribution.Subsidiary.ID,
-				"name": h.attribution.Subsidiary.Name,
+				"id":   h.client.attribution.Subsidiary.ID,
+				"name": h.client.attribution.Subsidiary.Name,
 			}
 		}
 	}
@@ -246,7 +236,7 @@ func (h *langChainHandler) HandleLLMError(ctx context.Context, err error) {
 		},
 		Meta: internal.Meta{
 			API: internal.APIInfo{
-				Key: h.cfg.apiKey,
+				Key: h.client.cfg.apiKey,
 			},
 			FNFG: internal.FNFGInfo{
 				Exc:    &errMsg,
@@ -254,7 +244,7 @@ func (h *langChainHandler) HandleLLMError(ctx context.Context, err error) {
 			},
 			SDK: internal.SDKInfo{
 				Client:  "go",
-				Version: h.cfg.version,
+				Version: h.client.cfg.version,
 			},
 		},
 		Time: internal.TimeInfo{
@@ -262,11 +252,11 @@ func (h *langChainHandler) HandleLLMError(ctx context.Context, err error) {
 			End:   endTime,
 		},
 		Tx: internal.Transaction{
-			UUID: h.txID,
+			UUID: h.client.txID,
 		},
 	}
 
-	h.sendFn(ctx, payload)
+	h.client.collector.SendAsync(ctx, payload)
 }
 
 // HandleChainStart is called when a chain starts processing.

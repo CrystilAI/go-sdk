@@ -12,33 +12,34 @@ import (
 
 func main() {
 	// Initialize Payloop client
-	client, err := payloop.New(payloop.WithAPIKey(os.Getenv("PAYLOOP_API_KEY")))
+	payloopClient, err := payloop.New(payloop.WithAPIKey(os.Getenv("PAYLOOP_API_KEY")))
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer client.Close()
+	defer payloopClient.Close()
 
-	// Set attribution to track costs by user
-	client, err = client.SetAttribution(payloop.Attribution{
-		Parent: payloop.AttributionEntity{
-			ID:   "user-789",
-			Name: "Alice Johnson",
-		},
+	// Get wrapped HTTP client for Google
+	httpClient := payloopClient.HTTPClient(payloop.ProviderGoogle)
+
+	ctx := context.Background()
+
+	// Create Google GenAI client with your own configuration
+	googleClient, err := genai.NewClient(ctx, &genai.ClientConfig{
+		HTTPClient: httpClient,
+		APIKey:     os.Getenv("GOOGLE_API_KEY"),
+		Backend:    genai.BackendGeminiAPI,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	ctx := context.Background()
-
-	// Register Google GenAI client with Payloop tracking
-	googleClient, err := client.RegisterGoogle(
-		ctx,
-		&genai.ClientConfig{
-			APIKey:  os.Getenv("GOOGLE_API_KEY"),
-			Backend: genai.BackendGeminiAPI,
+	// Set attribution to track costs by user (affects all future requests)
+	err = payloopClient.SetAttribution(&payloop.Attribution{
+		Parent: payloop.AttributionEntity{
+			ID:   "user-789",
+			Name: "Alice Johnson",
 		},
-	)
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -63,18 +64,19 @@ func main() {
 		}
 	}
 
-	// Create a new transaction for the next request
-	newTxClient := client.NewTransaction()
-
-	googleClient2, err := newTxClient.WrapGoogleClient(
-		ctx,
-		os.Getenv("GOOGLE_API_KEY"),
-	)
+	// Update attribution for a different user (affects same googleClient)
+	err = payloopClient.SetAttribution(&payloop.Attribution{
+		Parent: payloop.AttributionEntity{
+			ID:   "user-101",
+			Name: "Charlie Brown",
+		},
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	resp2, err := googleClient2.Models.GenerateContent(
+	// This request will be attributed to Charlie Brown
+	resp2, err := googleClient.Models.GenerateContent(
 		ctx,
 		"gemini-2.0-flash",
 		[]*genai.Content{{Parts: []*genai.Part{{Text: "Tell me a short joke"}}}},

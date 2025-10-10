@@ -15,47 +15,32 @@ import (
 // streamingResponseBody wraps a streaming response body to accumulate chunks for analytics.
 // It reads transparently while building a complete response for tracking.
 type streamingResponseBody struct {
-	reader      io.ReadCloser
-	buffer      *bytes.Buffer
-	collector   *collector
-	cfg         *config
-	txID        string
-	attribution *Attribution
-	provider    string
-	title       string
-	version     string
-	reqBody     []byte
-	startTime   time.Time
-	ctx         context.Context
+	reader    io.ReadCloser
+	buffer    *bytes.Buffer
+	client    *Client
+	provider  Provider
+	reqBody   []byte
+	startTime time.Time
+	ctx       context.Context
 }
 
 // newStreamingResponseBody creates a streaming wrapper.
 func newStreamingResponseBody(
 	reader io.ReadCloser,
-	collector *collector,
-	cfg *config,
-	txID string,
-	attribution *Attribution,
-	provider string,
-	title string,
-	version string,
+	client *Client,
+	provider Provider,
 	reqBody []byte,
 	startTime time.Time,
 	ctx context.Context,
 ) *streamingResponseBody {
 	return &streamingResponseBody{
-		reader:      reader,
-		buffer:      &bytes.Buffer{},
-		collector:   collector,
-		cfg:         cfg,
-		txID:        txID,
-		attribution: attribution,
-		provider:    provider,
-		title:       title,
-		version:     version,
-		reqBody:     reqBody,
-		startTime:   startTime,
-		ctx:         ctx,
+		reader:    reader,
+		buffer:    &bytes.Buffer{},
+		client:    client,
+		provider:  provider,
+		reqBody:   reqBody,
+		startTime: startTime,
+		ctx:       ctx,
 	}
 }
 
@@ -81,19 +66,19 @@ func (s *streamingResponseBody) Close() error {
 		_ = json.Unmarshal(s.reqBody, &query)
 	}
 
-	// Build attribution for payload
+	// Build attribution for payload (read from client dynamically)
 	var attr interface{}
-	if s.attribution != nil {
+	if s.client.attribution != nil {
 		attr = map[string]interface{}{
 			"parent": map[string]interface{}{
-				"id":   s.attribution.Parent.ID,
-				"name": s.attribution.Parent.Name,
+				"id":   s.client.attribution.Parent.ID,
+				"name": s.client.attribution.Parent.Name,
 			},
 		}
-		if s.attribution.Subsidiary != nil {
+		if s.client.attribution.Subsidiary != nil {
 			attr.(map[string]interface{})["subsidiary"] = map[string]interface{}{
-				"id":   s.attribution.Subsidiary.ID,
-				"name": s.attribution.Subsidiary.Name,
+				"id":   s.client.attribution.Subsidiary.ID,
+				"name": s.client.attribution.Subsidiary.Name,
 			}
 		}
 	}
@@ -103,16 +88,16 @@ func (s *streamingResponseBody) Close() error {
 		Attribution: attr,
 		Conversation: internal.Conversation{
 			Client: internal.ClientInfo{
-				Provider: s.provider,
-				Title:    s.title,
-				Version:  s.version,
+				Provider: "",
+				Title:    string(s.provider),
+				Version:  "",
 			},
 			Query:    query,
 			Response: response,
 		},
 		Meta: internal.Meta{
 			API: internal.APIInfo{
-				Key: s.cfg.apiKey,
+				Key: s.client.cfg.apiKey,
 			},
 			FNFG: internal.FNFGInfo{
 				Exc:    nil,
@@ -120,7 +105,7 @@ func (s *streamingResponseBody) Close() error {
 			},
 			SDK: internal.SDKInfo{
 				Client:  "go",
-				Version: s.cfg.version,
+				Version: s.client.cfg.version,
 			},
 		},
 		Time: internal.TimeInfo{
@@ -128,11 +113,11 @@ func (s *streamingResponseBody) Close() error {
 			End:   time.Now(),
 		},
 		Tx: internal.Transaction{
-			UUID: s.txID,
+			UUID: s.client.txID,
 		},
 	}
 
-	s.collector.SendAsync(s.ctx, payload)
+	s.client.collector.SendAsync(s.ctx, payload)
 	return nil
 }
 
@@ -176,11 +161,11 @@ func (s *streamingResponseBody) reconstructResponse() map[string]interface{} {
 	}
 
 	// Merge chunks based on provider format
-	if s.title == "openai" {
+	if s.provider == ProviderOpenAI {
 		reconstructed = s.reconstructOpenAI(chunks)
-	} else if s.title == "anthropic" {
+	} else if s.provider == ProviderAnthropic {
 		reconstructed = s.reconstructAnthropic(chunks)
-	} else if s.title == "google" {
+	} else if s.provider == ProviderGoogle {
 		reconstructed = s.reconstructGoogle(chunks)
 	}
 

@@ -13,14 +13,14 @@ import (
 
 func main() {
 	// Initialize Payloop client
-	client, err := payloop.New(payloop.WithAPIKey(os.Getenv("PAYLOOP_API_KEY")))
+	payloopClient, err := payloop.New(payloop.WithAPIKey(os.Getenv("PAYLOOP_API_KEY")))
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer client.Close()
+	defer payloopClient.Close()
 
-	// Set attribution to track costs by user
-	client, err = client.SetAttribution(payloop.Attribution{
+	// Set attribution to track costs by user (affects all future requests)
+	err = payloopClient.SetAttribution(&payloop.Attribution{
 		Parent: payloop.AttributionEntity{
 			ID:   "user-langchain",
 			Name: "LangChain User",
@@ -33,7 +33,7 @@ func main() {
 	ctx := context.Background()
 
 	// Create Payloop callback handler for LangChain
-	handler := client.NewLangChainHandler()
+	handler := payloopClient.NewLangChainHandler()
 
 	// Create LangChain LLM with Payloop callback
 	llm, err := openai.New(
@@ -58,7 +58,7 @@ func main() {
 	fmt.Printf("Response: %s\n", response)
 
 	// Create a new transaction for the next request
-	newTxClient := client.NewTransaction()
+	newTxClient := payloopClient.NewTransaction()
 	handler2 := newTxClient.NewLangChainHandler()
 
 	llm2, err := openai.New(

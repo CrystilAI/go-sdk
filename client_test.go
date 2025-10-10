@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	anthropicOption "github.com/anthropics/anthropic-sdk-go/option"
-	openaiOption "github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 	"google.golang.org/genai"
 )
 
@@ -140,12 +140,12 @@ func TestSetAttribution(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		attr    Attribution
+		attr    *Attribution
 		wantErr bool
 	}{
 		{
 			name: "valid parent only",
-			attr: Attribution{
+			attr: &Attribution{
 				Parent: AttributionEntity{
 					ID:   "user-123",
 					Name: "John Doe",
@@ -155,7 +155,7 @@ func TestSetAttribution(t *testing.T) {
 		},
 		{
 			name: "valid parent and subsidiary",
-			attr: Attribution{
+			attr: &Attribution{
 				Parent: AttributionEntity{
 					ID:   "org-123",
 					Name: "Acme Corp",
@@ -169,7 +169,7 @@ func TestSetAttribution(t *testing.T) {
 		},
 		{
 			name: "missing parent ID",
-			attr: Attribution{
+			attr: &Attribution{
 				Parent: AttributionEntity{
 					Name: "John Doe",
 				},
@@ -178,7 +178,7 @@ func TestSetAttribution(t *testing.T) {
 		},
 		{
 			name: "parent ID too long",
-			attr: Attribution{
+			attr: &Attribution{
 				Parent: AttributionEntity{
 					ID: string(make([]byte, 101)),
 				},
@@ -189,92 +189,48 @@ func TestSetAttribution(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			newClient, err := client.SetAttribution(tt.attr)
+			err := client.SetAttribution(tt.attr)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("SetAttribution() error = %v, wantErr %v", err, tt.wantErr)
 			}
 
-			if err == nil && newClient.attribution == nil {
+			if err == nil && client.attribution == nil {
 				t.Error("Expected attribution to be set")
-			}
-
-			if client.attribution != nil {
-				t.Error("Original client's attribution was modified")
 			}
 		})
 	}
 }
 
-func TestRegisterOpenAI(t *testing.T) {
+func TestHTTPClient(t *testing.T) {
 	client, err := New(WithAPIKey("test-key"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer client.Close()
 
-	ctx := context.Background()
+	tests := []struct {
+		name     string
+		provider Provider
+	}{
+		{"OpenAI", ProviderOpenAI},
+		{"Anthropic", ProviderAnthropic},
+		{"Google", ProviderGoogle},
+	}
 
-	openaiClient := client.RegisterOpenAI(ctx, openaiOption.WithAPIKey("sk-test-openai-key"))
-	if openaiClient == nil {
-		t.Error("Expected OpenAI client to be non-nil")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			httpClient := client.HTTPClient(tt.provider)
+			if httpClient == nil {
+				t.Errorf("Expected non-nil HTTP client for %s", tt.provider)
+			}
+			if httpClient.Transport == nil {
+				t.Errorf("Expected non-nil transport for %s", tt.provider)
+			}
+		})
 	}
 }
 
-func TestWrapOpenAIClient(t *testing.T) {
-	client, err := New(WithAPIKey("test-key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close()
-
-	ctx := context.Background()
-	openaiClient := client.WrapOpenAIClient(ctx, "sk-test-openai-key")
-	if openaiClient == nil {
-		t.Error("Expected OpenAI client to be non-nil")
-	}
-}
-
-func TestRegisterAnthropic(t *testing.T) {
-	client, err := New(WithAPIKey("test-key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close()
-
-	ctx := context.Background()
-	// RegisterAnthropic should not panic and should return successfully
-	_ = client.RegisterAnthropic(ctx, anthropicOption.WithAPIKey("test-anthropic-key"))
-}
-
-func TestWrapAnthropicClient(t *testing.T) {
-	client, err := New(WithAPIKey("test-key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close()
-
-	ctx := context.Background()
-	// WrapAnthropicClient should not panic and should return successfully
-	_ = client.WrapAnthropicClient(ctx, "test-anthropic-key")
-}
-
-func TestRegisterAnthropicWithMultipleOptions(t *testing.T) {
-	client, err := New(WithAPIKey("test-key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close()
-
-	ctx := context.Background()
-	// RegisterAnthropic should accept multiple options without panicking
-	_ = client.RegisterAnthropic(
-		ctx,
-		anthropicOption.WithAPIKey("test-anthropic-key"),
-		anthropicOption.WithMaxRetries(3),
-	)
-}
-
-func TestProviderRegistrationWithAttribution(t *testing.T) {
+func TestHTTPClientWithAttribution(t *testing.T) {
 	client, err := New(WithAPIKey("test-key"))
 	if err != nil {
 		t.Fatal(err)
@@ -282,7 +238,7 @@ func TestProviderRegistrationWithAttribution(t *testing.T) {
 	defer client.Close()
 
 	// Set attribution
-	client, err = client.SetAttribution(Attribution{
+	err = client.SetAttribution(&Attribution{
 		Parent: AttributionEntity{
 			ID:   "user-123",
 			Name: "Test User",
@@ -292,41 +248,50 @@ func TestProviderRegistrationWithAttribution(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx := context.Background()
+	// Create HTTP client
+	httpClient := client.HTTPClient(ProviderOpenAI)
 
-	// Test OpenAI with attribution
-	openaiClient := client.WrapOpenAIClient(ctx, "sk-test-key")
-	if openaiClient == nil {
-		t.Error("Expected OpenAI client with attribution to be non-nil")
-	}
-
-	// Test Anthropic with attribution - should not panic
-	_ = client.WrapAnthropicClient(ctx, "test-key")
+	// Create OpenAI client - verifies HTTPClient works with OpenAI
+	_ = openai.NewClient(
+		option.WithHTTPClient(httpClient),
+		option.WithAPIKey("sk-test-key"),
+	)
 }
 
-func TestProviderRegistrationWithTransaction(t *testing.T) {
+func TestHTTPClientMutableAttribution(t *testing.T) {
 	client, err := New(WithAPIKey("test-key"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer client.Close()
 
-	// Create new transaction
-	txClient := client.NewTransaction()
-	if txClient.txID == client.txID {
-		t.Error("Expected different transaction ID")
+	// Create HTTP client before setting attribution
+	httpClient := client.HTTPClient(ProviderOpenAI)
+
+	// Create OpenAI client - verifies HTTPClient works before attribution is set
+	_ = openai.NewClient(
+		option.WithHTTPClient(httpClient),
+		option.WithAPIKey("sk-test-key"),
+	)
+
+	// Now set attribution - should affect future requests through the same httpClient
+	err = client.SetAttribution(&Attribution{
+		Parent: AttributionEntity{
+			ID:   "user-456",
+			Name: "Updated User",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	ctx := context.Background()
-
-	// Test OpenAI with new transaction
-	openaiClient := txClient.WrapOpenAIClient(ctx, "sk-test-key")
-	if openaiClient == nil {
-		t.Error("Expected OpenAI client with new transaction to be non-nil")
+	// Verify attribution was set
+	if client.attribution == nil {
+		t.Error("Expected attribution to be set")
 	}
-
-	// Test Anthropic with new transaction - should not panic
-	_ = txClient.WrapAnthropicClient(ctx, "test-key")
+	if client.attribution.Parent.ID != "user-456" {
+		t.Errorf("Expected attribution ID user-456, got %s", client.attribution.Parent.ID)
+	}
 }
 
 func TestRegisterGoogle(t *testing.T) {
@@ -337,83 +302,18 @@ func TestRegisterGoogle(t *testing.T) {
 	defer client.Close()
 
 	ctx := context.Background()
-	googleClient, err := client.RegisterGoogle(ctx, &genai.ClientConfig{
-		APIKey:  "test-google-key",
-		Backend: genai.BackendGeminiAPI,
+	httpClient := client.HTTPClient(ProviderGoogle)
+
+	googleClient, err := genai.NewClient(ctx, &genai.ClientConfig{
+		HTTPClient: httpClient,
+		APIKey:     "test-google-key",
+		Backend:    genai.BackendGeminiAPI,
 	})
 	if err != nil {
-		t.Fatalf("RegisterGoogle() error = %v", err)
+		t.Fatalf("genai.NewClient() error = %v", err)
 	}
 	if googleClient == nil {
 		t.Error("Expected Google client to be non-nil")
-	}
-}
-
-func TestWrapGoogleClient(t *testing.T) {
-	client, err := New(WithAPIKey("test-key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close()
-
-	ctx := context.Background()
-	googleClient, err := client.WrapGoogleClient(ctx, "test-google-key")
-	if err != nil {
-		t.Fatalf("WrapGoogleClient() error = %v", err)
-	}
-	if googleClient == nil {
-		t.Error("Expected Google client to be non-nil")
-	}
-}
-
-func TestRegisterGoogleWithAttribution(t *testing.T) {
-	client, err := New(WithAPIKey("test-key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close()
-
-	// Set attribution
-	client, err = client.SetAttribution(Attribution{
-		Parent: AttributionEntity{
-			ID:   "user-123",
-			Name: "Test User",
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	ctx := context.Background()
-	googleClient, err := client.WrapGoogleClient(ctx, "test-google-key")
-	if err != nil {
-		t.Fatalf("WrapGoogleClient() with attribution error = %v", err)
-	}
-	if googleClient == nil {
-		t.Error("Expected Google client with attribution to be non-nil")
-	}
-}
-
-func TestRegisterGoogleWithTransaction(t *testing.T) {
-	client, err := New(WithAPIKey("test-key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close()
-
-	// Create new transaction
-	txClient := client.NewTransaction()
-	if txClient.txID == client.txID {
-		t.Error("Expected different transaction ID")
-	}
-
-	ctx := context.Background()
-	googleClient, err := txClient.WrapGoogleClient(ctx, "test-google-key")
-	if err != nil {
-		t.Fatalf("WrapGoogleClient() with new transaction error = %v", err)
-	}
-	if googleClient == nil {
-		t.Error("Expected Google client with new transaction to be non-nil")
 	}
 }
 
@@ -430,33 +330,6 @@ func TestNewLangChainHandler(t *testing.T) {
 	}
 }
 
-func TestNewLangChainHandlerWithAttribution(t *testing.T) {
-	client, err := New(WithAPIKey("test-key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close()
-
-	// Set attribution
-	client, err = client.SetAttribution(Attribution{
-		Parent: AttributionEntity{
-			ID:   "user-123",
-			Name: "Test User",
-		},
-		Subsidiary: &AttributionEntity{
-			ID:   "team-456",
-			Name: "Engineering",
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	handler := client.NewLangChainHandler()
-	if handler == nil {
-		t.Error("Expected non-nil LangChain handler with attribution")
-	}
-}
 
 func TestNewLangChainHandlerWithTransaction(t *testing.T) {
 	client, err := New(WithAPIKey("test-key"))

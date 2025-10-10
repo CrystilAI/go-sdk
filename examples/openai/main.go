@@ -8,18 +8,28 @@ import (
 
 	"github.com/PayloopAI/go-sdk"
 	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 )
 
 func main() {
 	// Initialize Payloop client
-	client, err := payloop.New(payloop.WithAPIKey(os.Getenv("PAYLOOP_API_KEY")))
+	payloopClient, err := payloop.New(payloop.WithAPIKey(os.Getenv("PAYLOOP_API_KEY")))
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer client.Close()
+	defer payloopClient.Close()
 
-	// Set attribution to track costs by user
-	client, err = client.SetAttribution(payloop.Attribution{
+	// Get wrapped HTTP client for OpenAI
+	httpClient := payloopClient.HTTPClient(payloop.ProviderOpenAI)
+
+	// Create OpenAI client with your own configuration
+	openaiClient := openai.NewClient(
+		option.WithHTTPClient(httpClient),
+		option.WithAPIKey(os.Getenv("OPENAI_API_KEY")),
+	)
+
+	// Set attribution to track costs by user (affects all future requests)
+	err = payloopClient.SetAttribution(&payloop.Attribution{
 		Parent: payloop.AttributionEntity{
 			ID:   "user-123",
 			Name: "John Doe",
@@ -28,9 +38,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	// Register OpenAI client
-	openaiClient := client.WrapOpenAIClient(context.Background(), os.Getenv("OPENAI_API_KEY"))
 
 	// Use OpenAI as normal - analytics tracked automatically
 	resp, err := openaiClient.Chat.Completions.New(
@@ -48,12 +55,19 @@ func main() {
 
 	fmt.Printf("Response: %s\n", resp.Choices[0].Message.Content)
 
-	// Create a new transaction for the next request
-	newTxClient := client.NewTransaction()
+	// Update attribution for a different user (affects same openaiClient)
+	err = payloopClient.SetAttribution(&payloop.Attribution{
+		Parent: payloop.AttributionEntity{
+			ID:   "user-456",
+			Name: "Jane Smith",
+		},
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	openaiClient2 := newTxClient.WrapOpenAIClient(context.Background(), os.Getenv("OPENAI_API_KEY"))
-
-	resp2, err := openaiClient2.Chat.Completions.New(
+	// This request will be attributed to Jane Smith
+	resp2, err := openaiClient.Chat.Completions.New(
 		context.Background(),
 		openai.ChatCompletionNewParams{
 			Model: openai.ChatModelGPT4o,
