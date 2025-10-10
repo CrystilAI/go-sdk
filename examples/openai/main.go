@@ -25,15 +25,13 @@ func main() {
 	// Create OpenAI client with your own configuration
 	openaiClient := openai.NewClient(
 		option.WithHTTPClient(httpClient),
-		option.WithAPIKey(os.Getenv("OPENAI_API_KEY")),
 	)
 
 	// Set attribution to track costs by user (affects all future requests)
+	johnDoe := "John Doe"
 	err = payloopClient.SetAttribution(&payloop.Attribution{
-		Parent: payloop.AttributionEntity{
-			ID:   "user-123",
-			Name: "John Doe",
-		},
+		ParentID:   "user-123",
+		ParentName: &johnDoe,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -56,11 +54,10 @@ func main() {
 	fmt.Printf("Response: %s\n", resp.Choices[0].Message.Content)
 
 	// Update attribution for a different user (affects same openaiClient)
+	janeSmith := "Jane Smith"
 	err = payloopClient.SetAttribution(&payloop.Attribution{
-		Parent: payloop.AttributionEntity{
-			ID:   "user-456",
-			Name: "Jane Smith",
-		},
+		ParentID:   "user-456",
+		ParentName: &janeSmith,
 	})
 	if err != nil {
 		log.Fatal(err)

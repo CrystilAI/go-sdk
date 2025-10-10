@@ -32,11 +32,10 @@ func TestNewLangChainHandlerWithAttribution(t *testing.T) {
 	}
 	defer client.Close()
 
+	testUser := "Test User"
 	err = client.SetAttribution(&Attribution{
-		Parent: AttributionEntity{
-			ID:   "user-123",
-			Name: "Test User",
-		},
+		ParentID:   "user-123",
+		ParentName: &testUser,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -147,11 +146,10 @@ func TestHandlerMutableAttribution(t *testing.T) {
 	h.HandleLLMEnd(ctx, map[string]any{"response": "test1"})
 
 	// Update attribution on the client
+	updatedUser := "Updated User"
 	err = client.SetAttribution(&Attribution{
-		Parent: AttributionEntity{
-			ID:   "user-456",
-			Name: "Updated User",
-		},
+		ParentID:   "user-456",
+		ParentName: &updatedUser,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -167,8 +165,8 @@ func TestHandlerMutableAttribution(t *testing.T) {
 		t.Fatal("Expected attribution to be set on client")
 	}
 
-	if h.client.attribution.Parent.ID != "user-456" {
-		t.Errorf("Expected attribution ID 'user-456', got '%s'", h.client.attribution.Parent.ID)
+	if h.client.attribution.ParentID != "user-456" {
+		t.Errorf("Expected attribution ID 'user-456', got '%s'", h.client.attribution.ParentID)
 	}
 }
 

@@ -138,6 +138,11 @@ func TestSetAttribution(t *testing.T) {
 	}
 	defer client.Close()
 
+	johnDoe := "John Doe"
+	acmeCorp := "Acme Corp"
+	engineering := "Engineering"
+	teamID := "team-456"
+
 	tests := []struct {
 		name    string
 		attr    *Attribution
@@ -146,42 +151,32 @@ func TestSetAttribution(t *testing.T) {
 		{
 			name: "valid parent only",
 			attr: &Attribution{
-				Parent: AttributionEntity{
-					ID:   "user-123",
-					Name: "John Doe",
-				},
+				ParentID:   "user-123",
+				ParentName: &johnDoe,
 			},
 			wantErr: false,
 		},
 		{
 			name: "valid parent and subsidiary",
 			attr: &Attribution{
-				Parent: AttributionEntity{
-					ID:   "org-123",
-					Name: "Acme Corp",
-				},
-				Subsidiary: &AttributionEntity{
-					ID:   "team-456",
-					Name: "Engineering",
-				},
+				ParentID:       "org-123",
+				ParentName:     &acmeCorp,
+				SubsidiaryID:   &teamID,
+				SubsidiaryName: &engineering,
 			},
 			wantErr: false,
 		},
 		{
 			name: "missing parent ID",
 			attr: &Attribution{
-				Parent: AttributionEntity{
-					Name: "John Doe",
-				},
+				ParentName: &johnDoe,
 			},
 			wantErr: true,
 		},
 		{
 			name: "parent ID too long",
 			attr: &Attribution{
-				Parent: AttributionEntity{
-					ID: string(make([]byte, 101)),
-				},
+				ParentID: string(make([]byte, 101)),
 			},
 			wantErr: true,
 		},
@@ -238,11 +233,10 @@ func TestHTTPClientWithAttribution(t *testing.T) {
 	defer client.Close()
 
 	// Set attribution
+	testUser := "Test User"
 	err = client.SetAttribution(&Attribution{
-		Parent: AttributionEntity{
-			ID:   "user-123",
-			Name: "Test User",
-		},
+		ParentID:   "user-123",
+		ParentName: &testUser,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -275,11 +269,10 @@ func TestHTTPClientMutableAttribution(t *testing.T) {
 	)
 
 	// Now set attribution - should affect future requests through the same httpClient
+	updatedUser := "Updated User"
 	err = client.SetAttribution(&Attribution{
-		Parent: AttributionEntity{
-			ID:   "user-456",
-			Name: "Updated User",
-		},
+		ParentID:   "user-456",
+		ParentName: &updatedUser,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -289,8 +282,8 @@ func TestHTTPClientMutableAttribution(t *testing.T) {
 	if client.attribution == nil {
 		t.Error("Expected attribution to be set")
 	}
-	if client.attribution.Parent.ID != "user-456" {
-		t.Errorf("Expected attribution ID user-456, got %s", client.attribution.Parent.ID)
+	if client.attribution.ParentID != "user-456" {
+		t.Errorf("Expected attribution ID user-456, got %s", client.attribution.ParentID)
 	}
 }
 

@@ -3,38 +3,32 @@ package payloop
 import "errors"
 
 // Attribution tracks cost hierarchy for an invocation.
+// ParentID is required. All other fields are optional.
 type Attribution struct {
-	Parent     AttributionEntity
-	Subsidiary *AttributionEntity // nil if not applicable
-}
-
-// AttributionEntity represents a cost attribution node.
-type AttributionEntity struct {
-	ID   string
-	Name string
+	ParentID        string
+	ParentName      *string
+	SubsidiaryID    *string
+	SubsidiaryName  *string
 }
 
 // validate checks if the attribution is valid.
 func (a Attribution) validate() error {
-	if a.Parent.ID == "" {
+	if a.ParentID == "" {
 		return errors.New("payloop: parent ID required")
 	}
-	if len(a.Parent.ID) > 100 {
+	if len(a.ParentID) > 100 {
 		return errors.New("payloop: parent ID exceeds 100 characters")
 	}
-	if a.Parent.Name != "" && len(a.Parent.Name) > 100 {
+	if a.ParentName != nil && len(*a.ParentName) > 100 {
 		return errors.New("payloop: parent name exceeds 100 characters")
 	}
-	if a.Subsidiary != nil {
-		if a.Subsidiary.ID == "" {
-			return errors.New("payloop: subsidiary ID required when subsidiary is set")
-		}
-		if len(a.Subsidiary.ID) > 100 {
+	if a.SubsidiaryID != nil {
+		if len(*a.SubsidiaryID) > 100 {
 			return errors.New("payloop: subsidiary ID exceeds 100 characters")
 		}
-		if a.Subsidiary.Name != "" && len(a.Subsidiary.Name) > 100 {
-			return errors.New("payloop: subsidiary name exceeds 100 characters")
-		}
+	}
+	if a.SubsidiaryName != nil && len(*a.SubsidiaryName) > 100 {
+		return errors.New("payloop: subsidiary name exceeds 100 characters")
 	}
 	return nil
 }

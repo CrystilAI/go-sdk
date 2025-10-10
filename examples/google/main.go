@@ -26,7 +26,6 @@ func main() {
 	// Create Google GenAI client with your own configuration
 	googleClient, err := genai.NewClient(ctx, &genai.ClientConfig{
 		HTTPClient: httpClient,
-		APIKey:     os.Getenv("GOOGLE_API_KEY"),
 		Backend:    genai.BackendGeminiAPI,
 	})
 	if err != nil {
@@ -34,11 +33,10 @@ func main() {
 	}
 
 	// Set attribution to track costs by user (affects all future requests)
+	aliceJohnson := "Alice Johnson"
 	err = payloopClient.SetAttribution(&payloop.Attribution{
-		Parent: payloop.AttributionEntity{
-			ID:   "user-789",
-			Name: "Alice Johnson",
-		},
+		ParentID:   "user-789",
+		ParentName: &aliceJohnson,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -65,11 +63,10 @@ func main() {
 	}
 
 	// Update attribution for a different user (affects same googleClient)
+	charlieBrown := "Charlie Brown"
 	err = payloopClient.SetAttribution(&payloop.Attribution{
-		Parent: payloop.AttributionEntity{
-			ID:   "user-101",
-			Name: "Charlie Brown",
-		},
+		ParentID:   "user-101",
+		ParentName: &charlieBrown,
 	})
 	if err != nil {
 		log.Fatal(err)

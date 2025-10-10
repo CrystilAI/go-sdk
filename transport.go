@@ -81,17 +81,25 @@ func (t *tracingTransport) buildPayload(reqBody, respBody []byte, start, end tim
 	// Build attribution for payload (read from client dynamically)
 	var attr interface{}
 	if t.client.attribution != nil {
-		attr = map[string]interface{}{
-			"parent": map[string]interface{}{
-				"id":   t.client.attribution.Parent.ID,
-				"name": t.client.attribution.Parent.Name,
-			},
+		parentMap := map[string]interface{}{
+			"id": t.client.attribution.ParentID,
 		}
-		if t.client.attribution.Subsidiary != nil {
-			attr.(map[string]interface{})["subsidiary"] = map[string]interface{}{
-				"id":   t.client.attribution.Subsidiary.ID,
-				"name": t.client.attribution.Subsidiary.Name,
+		if t.client.attribution.ParentName != nil {
+			parentMap["name"] = *t.client.attribution.ParentName
+		}
+
+		attr = map[string]interface{}{
+			"parent": parentMap,
+		}
+
+		if t.client.attribution.SubsidiaryID != nil {
+			subsidiaryMap := map[string]interface{}{
+				"id": *t.client.attribution.SubsidiaryID,
 			}
+			if t.client.attribution.SubsidiaryName != nil {
+				subsidiaryMap["name"] = *t.client.attribution.SubsidiaryName
+			}
+			attr.(map[string]interface{})["subsidiary"] = subsidiaryMap
 		}
 	}
 

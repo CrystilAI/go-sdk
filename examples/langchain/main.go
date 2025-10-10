@@ -20,11 +20,10 @@ func main() {
 	defer payloopClient.Close()
 
 	// Set attribution to track costs by user (affects all future requests)
+	langchainUser := "LangChain User"
 	err = payloopClient.SetAttribution(&payloop.Attribution{
-		Parent: payloop.AttributionEntity{
-			ID:   "user-langchain",
-			Name: "LangChain User",
-		},
+		ParentID:   "user-langchain",
+		ParentName: &langchainUser,
 	})
 	if err != nil {
 		log.Fatal(err)

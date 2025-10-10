@@ -69,17 +69,25 @@ func (s *streamingResponseBody) Close() error {
 	// Build attribution for payload (read from client dynamically)
 	var attr interface{}
 	if s.client.attribution != nil {
-		attr = map[string]interface{}{
-			"parent": map[string]interface{}{
-				"id":   s.client.attribution.Parent.ID,
-				"name": s.client.attribution.Parent.Name,
-			},
+		parentMap := map[string]interface{}{
+			"id": s.client.attribution.ParentID,
 		}
-		if s.client.attribution.Subsidiary != nil {
-			attr.(map[string]interface{})["subsidiary"] = map[string]interface{}{
-				"id":   s.client.attribution.Subsidiary.ID,
-				"name": s.client.attribution.Subsidiary.Name,
+		if s.client.attribution.ParentName != nil {
+			parentMap["name"] = *s.client.attribution.ParentName
+		}
+
+		attr = map[string]interface{}{
+			"parent": parentMap,
+		}
+
+		if s.client.attribution.SubsidiaryID != nil {
+			subsidiaryMap := map[string]interface{}{
+				"id": *s.client.attribution.SubsidiaryID,
 			}
+			if s.client.attribution.SubsidiaryName != nil {
+				subsidiaryMap["name"] = *s.client.attribution.SubsidiaryName
+			}
+			attr.(map[string]interface{})["subsidiary"] = subsidiaryMap
 		}
 	}
 

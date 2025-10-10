@@ -25,15 +25,13 @@ func main() {
 	// Create Anthropic client with your own configuration
 	anthropicClient := anthropic.NewClient(
 		option.WithHTTPClient(httpClient),
-		option.WithAPIKey(os.Getenv("ANTHROPIC_API_KEY")),
 	)
 
 	// Set attribution to track costs by user (affects all future requests)
+	janeSmith := "Jane Smith"
 	err = payloopClient.SetAttribution(&payloop.Attribution{
-		Parent: payloop.AttributionEntity{
-			ID:   "user-456",
-			Name: "Jane Smith",
-		},
+		ParentID:   "user-456",
+		ParentName: &janeSmith,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -60,11 +58,10 @@ func main() {
 	}
 
 	// Update attribution for a different user (affects same anthropicClient)
+	bobJohnson := "Bob Johnson"
 	err = payloopClient.SetAttribution(&payloop.Attribution{
-		Parent: payloop.AttributionEntity{
-			ID:   "user-789",
-			Name: "Bob Johnson",
-		},
+		ParentID:   "user-789",
+		ParentName: &bobJohnson,
 	})
 	if err != nil {
 		log.Fatal(err)

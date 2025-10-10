@@ -56,17 +56,25 @@ func (h *langChainHandler) HandleLLMEnd(ctx context.Context, result map[string]a
 	// Build attribution for payload (read from client dynamically)
 	var attr interface{}
 	if h.client.attribution != nil {
-		attr = map[string]interface{}{
-			"parent": map[string]interface{}{
-				"id":   h.client.attribution.Parent.ID,
-				"name": h.client.attribution.Parent.Name,
-			},
+		parentMap := map[string]interface{}{
+			"id": h.client.attribution.ParentID,
 		}
-		if h.client.attribution.Subsidiary != nil {
-			attr.(map[string]interface{})["subsidiary"] = map[string]interface{}{
-				"id":   h.client.attribution.Subsidiary.ID,
-				"name": h.client.attribution.Subsidiary.Name,
+		if h.client.attribution.ParentName != nil {
+			parentMap["name"] = *h.client.attribution.ParentName
+		}
+
+		attr = map[string]interface{}{
+			"parent": parentMap,
+		}
+
+		if h.client.attribution.SubsidiaryID != nil {
+			subsidiaryMap := map[string]interface{}{
+				"id": *h.client.attribution.SubsidiaryID,
 			}
+			if h.client.attribution.SubsidiaryName != nil {
+				subsidiaryMap["name"] = *h.client.attribution.SubsidiaryName
+			}
+			attr.(map[string]interface{})["subsidiary"] = subsidiaryMap
 		}
 	}
 
@@ -143,17 +151,25 @@ func (h *langChainHandler) HandleLLMGenerateContentEnd(ctx context.Context, resp
 	// Build attribution for payload (read from client dynamically)
 	var attr interface{}
 	if h.client.attribution != nil {
-		attr = map[string]interface{}{
-			"parent": map[string]interface{}{
-				"id":   h.client.attribution.Parent.ID,
-				"name": h.client.attribution.Parent.Name,
-			},
+		parentMap := map[string]interface{}{
+			"id": h.client.attribution.ParentID,
 		}
-		if h.client.attribution.Subsidiary != nil {
-			attr.(map[string]interface{})["subsidiary"] = map[string]interface{}{
-				"id":   h.client.attribution.Subsidiary.ID,
-				"name": h.client.attribution.Subsidiary.Name,
+		if h.client.attribution.ParentName != nil {
+			parentMap["name"] = *h.client.attribution.ParentName
+		}
+
+		attr = map[string]interface{}{
+			"parent": parentMap,
+		}
+
+		if h.client.attribution.SubsidiaryID != nil {
+			subsidiaryMap := map[string]interface{}{
+				"id": *h.client.attribution.SubsidiaryID,
 			}
+			if h.client.attribution.SubsidiaryName != nil {
+				subsidiaryMap["name"] = *h.client.attribution.SubsidiaryName
+			}
+			attr.(map[string]interface{})["subsidiary"] = subsidiaryMap
 		}
 	}
 
@@ -208,17 +224,25 @@ func (h *langChainHandler) HandleLLMError(ctx context.Context, err error) {
 	// Build attribution for payload (read from client dynamically)
 	var attr interface{}
 	if h.client.attribution != nil {
-		attr = map[string]interface{}{
-			"parent": map[string]interface{}{
-				"id":   h.client.attribution.Parent.ID,
-				"name": h.client.attribution.Parent.Name,
-			},
+		parentMap := map[string]interface{}{
+			"id": h.client.attribution.ParentID,
 		}
-		if h.client.attribution.Subsidiary != nil {
-			attr.(map[string]interface{})["subsidiary"] = map[string]interface{}{
-				"id":   h.client.attribution.Subsidiary.ID,
-				"name": h.client.attribution.Subsidiary.Name,
+		if h.client.attribution.ParentName != nil {
+			parentMap["name"] = *h.client.attribution.ParentName
+		}
+
+		attr = map[string]interface{}{
+			"parent": parentMap,
+		}
+
+		if h.client.attribution.SubsidiaryID != nil {
+			subsidiaryMap := map[string]interface{}{
+				"id": *h.client.attribution.SubsidiaryID,
 			}
+			if h.client.attribution.SubsidiaryName != nil {
+				subsidiaryMap["name"] = *h.client.attribution.SubsidiaryName
+			}
+			attr.(map[string]interface{})["subsidiary"] = subsidiaryMap
 		}
 	}
 

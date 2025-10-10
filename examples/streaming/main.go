@@ -23,11 +23,10 @@ func main() {
 	defer payloopClient.Close()
 
 	// Set attribution to track costs by user
+	streamingUser := "Streaming User"
 	err = payloopClient.SetAttribution(&payloop.Attribution{
-		Parent: payloop.AttributionEntity{
-			ID:   "user-streaming",
-			Name: "Streaming User",
-		},
+		ParentID:   "user-streaming",
+		ParentName: &streamingUser,
 	})
 	if err != nil {
 		log.Fatal(err)
