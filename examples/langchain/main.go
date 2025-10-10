@@ -36,8 +36,6 @@ func main() {
 
 	// Create LangChain LLM with Payloop callback
 	llm, err := openai.New(
-		openai.WithModel("gpt-4o-mini"),
-		openai.WithToken(os.Getenv("OPENAI_API_KEY")),
 		openai.WithCallback(handler),
 	)
 	if err != nil {
