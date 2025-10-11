@@ -1,4 +1,3 @@
-// LangChain integration for Payloop analytics.
 package payloop
 
 import (
