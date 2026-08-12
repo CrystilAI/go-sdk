@@ -1,4 +1,4 @@
-package payloop
+package crystil
 
 // Provider represents a supported LLM provider.
 type Provider string

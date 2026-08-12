@@ -1,4 +1,4 @@
-package payloop
+package crystil
 
 import (
 	"bytes"
@@ -9,7 +9,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/PayloopAI/go-sdk/internal"
+	"github.com/CrystilAI/go-sdk/internal"
 )
 
 // collector sends analytics asynchronously.
@@ -63,7 +63,7 @@ func (c *collector) worker() {
 // send transmits a single payload to the collector.
 func (c *collector) send(ctx context.Context, p internal.Payload) error {
 	// Skip in test mode
-	if os.Getenv("PAYLOOP_TEST_MODE") != "" {
+	if os.Getenv("CRYSTIL_TEST_MODE") != "" {
 		return nil
 	}
 

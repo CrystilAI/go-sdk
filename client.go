@@ -1,11 +1,11 @@
-package payloop
+package crystil
 
 import (
 	"net/http"
 	"os"
 	"time"
 
-	"github.com/PayloopAI/go-sdk/api"
+	"github.com/CrystilAI/go-sdk/api"
 	"github.com/google/uuid"
 	"github.com/tmc/langchaingo/callbacks"
 )
@@ -20,12 +20,12 @@ type Client struct {
 	attribution *Attribution
 }
 
-// New creates a Payloop client. If no API key is provided via options,
-// it reads from PAYLOOP_API_KEY environment variable.
+// New creates a Crystil client. If no API key is provided via options,
+// it reads from CRYSTIL_API_KEY environment variable.
 func New(opts ...Option) (*Client, error) {
 	cfg := &config{
-		collectorURL:      "https://collector.trypayloop.com",
-		apiURL:            "https://api.trypayloop.com",
+		collectorURL:      "https://collector.crystil.com",
+		apiURL:            "https://api.crystil.com",
 		timeout:           5 * time.Second,
 		raiseFinalAttempt: true,
 		version:           version,
@@ -38,7 +38,7 @@ func New(opts ...Option) (*Client, error) {
 	}
 
 	if cfg.apiKey == "" {
-		cfg.apiKey = os.Getenv("PAYLOOP_API_KEY")
+		cfg.apiKey = os.Getenv("CRYSTIL_API_KEY")
 	}
 
 	if cfg.apiKey == "" {
@@ -77,8 +77,8 @@ func (c *Client) SetAttribution(attr *Attribution) error {
 //
 // Example:
 //
-//	payloop, _ := payloop.New(payloop.WithAPIKey("..."))
-//	httpClient := payloop.HTTPClient(payloop.ProviderOpenAI)
+//	crystil, _ := crystil.New(crystil.WithAPIKey("..."))
+//	httpClient := crystil.HTTPClient(crystil.ProviderOpenAI)
 //	openaiClient := openai.NewClient(openai.WithHTTPClient(httpClient), openai.WithAPIKey("..."))
 func (c *Client) HTTPClient(provider Provider) *http.Client {
 	return &http.Client{
@@ -107,7 +107,7 @@ func (c *Client) Workflow(uuid string) *api.WorkflowClient {
 	return api.NewWorkflowClient(uuid, apiClient)
 }
 
-// NewLangChainHandler creates a LangChain callback handler with Payloop analytics tracking.
+// NewLangChainHandler creates a LangChain callback handler with Crystil analytics tracking.
 // Use this with LangChain's callback system to automatically track LLM calls.
 func (c *Client) NewLangChainHandler() callbacks.Handler {
 	return newLangChainHandler(c)

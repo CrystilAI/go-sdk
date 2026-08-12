@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/PayloopAI/go-sdk"
+	"github.com/CrystilAI/go-sdk"
 	"github.com/anthropics/anthropic-sdk-go"
 	anthropicOption "github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/openai/openai-go/v3"
@@ -15,16 +15,16 @@ import (
 )
 
 func main() {
-	// Initialize Payloop client
-	payloopClient, err := payloop.New(payloop.WithAPIKey(os.Getenv("PAYLOOP_API_KEY")))
+	// Initialize Crystil client
+	crystilClient, err := crystil.New(crystil.WithAPIKey(os.Getenv("CRYSTIL_API_KEY")))
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer payloopClient.Close()
+	defer crystilClient.Close()
 
 	// Set attribution to track costs by user
 	streamingUser := "Streaming User"
-	err = payloopClient.SetAttribution(&payloop.Attribution{
+	err = crystilClient.SetAttribution(&crystil.Attribution{
 		ParentID:   "user-streaming",
 		ParentName: &streamingUser,
 	})
@@ -36,20 +36,20 @@ func main() {
 
 	// Example 1: OpenAI Streaming
 	fmt.Println("=== OpenAI Streaming ===")
-	streamingOpenAI(ctx, payloopClient)
+	streamingOpenAI(ctx, crystilClient)
 
 	// Example 2: Anthropic Streaming
 	fmt.Println("\n=== Anthropic Streaming ===")
-	streamingAnthropic(ctx, payloopClient)
+	streamingAnthropic(ctx, crystilClient)
 
 	// Example 3: Google GenAI Streaming
 	fmt.Println("\n=== Google GenAI Streaming ===")
-	streamingGoogle(ctx, payloopClient)
+	streamingGoogle(ctx, crystilClient)
 }
 
-func streamingOpenAI(ctx context.Context, payloopClient *payloop.Client) {
+func streamingOpenAI(ctx context.Context, crystilClient *crystil.Client) {
 	// Get wrapped HTTP client for OpenAI
-	httpClient := payloopClient.HTTPClient(payloop.ProviderOpenAI)
+	httpClient := crystilClient.HTTPClient(crystil.ProviderOpenAI)
 
 	// Create OpenAI client with your own configuration
 	openaiClient := openai.NewClient(
@@ -85,9 +85,9 @@ func streamingOpenAI(ctx context.Context, payloopClient *payloop.Client) {
 	// The SDK accumulates chunks and reconstructs the complete response.
 }
 
-func streamingAnthropic(ctx context.Context, payloopClient *payloop.Client) {
+func streamingAnthropic(ctx context.Context, crystilClient *crystil.Client) {
 	// Get wrapped HTTP client for Anthropic
-	httpClient := payloopClient.HTTPClient(payloop.ProviderAnthropic)
+	httpClient := crystilClient.HTTPClient(crystil.ProviderAnthropic)
 
 	// Create Anthropic client with your own configuration
 	anthropicClient := anthropic.NewClient(
@@ -122,9 +122,9 @@ func streamingAnthropic(ctx context.Context, payloopClient *payloop.Client) {
 	fmt.Println()
 }
 
-func streamingGoogle(ctx context.Context, payloopClient *payloop.Client) {
+func streamingGoogle(ctx context.Context, crystilClient *crystil.Client) {
 	// Get wrapped HTTP client for Google
-	httpClient := payloopClient.HTTPClient(payloop.ProviderGoogle)
+	httpClient := crystilClient.HTTPClient(crystil.ProviderGoogle)
 
 	// Create Google GenAI client with your own configuration
 	googleClient, err := genai.NewClient(ctx, &genai.ClientConfig{

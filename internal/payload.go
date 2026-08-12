@@ -2,7 +2,7 @@ package internal
 
 import "time"
 
-// Payload represents analytics data sent to Payloop.
+// Payload represents analytics data sent to Crystil.
 type Payload struct {
 	Attribution  interface{}  `json:"attribution,omitempty"`
 	Conversation Conversation `json:"conversation"`

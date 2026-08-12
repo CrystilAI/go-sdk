@@ -6,21 +6,21 @@ import (
 	"log"
 	"os"
 
-	"github.com/PayloopAI/go-sdk"
+	"github.com/CrystilAI/go-sdk"
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
 func main() {
-	// Initialize Payloop client
-	payloopClient, err := payloop.New(payloop.WithAPIKey(os.Getenv("PAYLOOP_API_KEY")))
+	// Initialize Crystil client
+	crystilClient, err := crystil.New(crystil.WithAPIKey(os.Getenv("CRYSTIL_API_KEY")))
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer payloopClient.Close()
+	defer crystilClient.Close()
 
 	// Get wrapped HTTP client for Anthropic
-	httpClient := payloopClient.HTTPClient(payloop.ProviderAnthropic)
+	httpClient := crystilClient.HTTPClient(crystil.ProviderAnthropic)
 
 	// Create Anthropic client with your own configuration
 	anthropicClient := anthropic.NewClient(
@@ -29,7 +29,7 @@ func main() {
 
 	// Set attribution to track costs by user (affects all future requests)
 	janeSmith := "Jane Smith"
-	err = payloopClient.SetAttribution(&payloop.Attribution{
+	err = crystilClient.SetAttribution(&crystil.Attribution{
 		ParentID:   "user-456",
 		ParentName: &janeSmith,
 	})
@@ -59,7 +59,7 @@ func main() {
 
 	// Update attribution for a different user (affects same anthropicClient)
 	bobJohnson := "Bob Johnson"
-	err = payloopClient.SetAttribution(&payloop.Attribution{
+	err = crystilClient.SetAttribution(&crystil.Attribution{
 		ParentID:   "user-789",
 		ParentName: &bobJohnson,
 	})

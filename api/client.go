@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Client handles HTTP requests to Payloop API.
+// Client handles HTTP requests to Crystil API.
 type Client struct {
 	httpClient *http.Client
 	baseURL    string

@@ -1,4 +1,4 @@
-package payloop
+package crystil
 
 import (
 	"bufio"
@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PayloopAI/go-sdk/internal"
+	"github.com/CrystilAI/go-sdk/internal"
 )
 
 // streamingResponseBody wraps a streaming response body to accumulate chunks for analytics.

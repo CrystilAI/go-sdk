@@ -1,4 +1,4 @@
-package payloop
+package crystil
 
 import (
 	"context"
@@ -33,10 +33,10 @@ func TestNew(t *testing.T) {
 			name: "from environment variable",
 			opts: []Option{},
 			setup: func() {
-				os.Setenv("PAYLOOP_API_KEY", "env-test-key")
+				os.Setenv("CRYSTIL_API_KEY", "env-test-key")
 			},
 			cleanup: func() {
-				os.Unsetenv("PAYLOOP_API_KEY")
+				os.Unsetenv("CRYSTIL_API_KEY")
 			},
 			wantErr: false,
 		},
@@ -322,7 +322,6 @@ func TestNewLangChainHandler(t *testing.T) {
 		t.Error("Expected non-nil LangChain handler")
 	}
 }
-
 
 func TestNewLangChainHandlerWithTransaction(t *testing.T) {
 	client, err := New(WithAPIKey("test-key"))

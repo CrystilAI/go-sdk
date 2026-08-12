@@ -1,4 +1,4 @@
-package payloop
+package crystil
 
 import "errors"
 

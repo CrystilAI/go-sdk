@@ -1,4 +1,4 @@
-package payloop
+package crystil
 
 import (
 	"bytes"
@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/PayloopAI/go-sdk/internal"
+	"github.com/CrystilAI/go-sdk/internal"
 )
 
 // tracingTransport wraps http.RoundTripper to capture LLM calls.
@@ -25,7 +25,7 @@ func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	// Capture request body
 	reqBody, err := captureBody(req.Body)
 	if err != nil {
-		return nil, fmt.Errorf("payloop: capture request: %w", err)
+		return nil, fmt.Errorf("crystil: capture request: %w", err)
 	}
 	req.Body = io.NopCloser(bytes.NewReader(reqBody))
 
@@ -53,7 +53,7 @@ func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		// Non-streaming: capture complete response
 		respBody, err := captureBody(resp.Body)
 		if err != nil {
-			return nil, fmt.Errorf("payloop: capture response: %w", err)
+			return nil, fmt.Errorf("crystil: capture response: %w", err)
 		}
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
