@@ -1,22 +1,22 @@
-package payloop
+package crystil
 
 import (
 	"context"
 	"time"
 
-	"github.com/PayloopAI/go-sdk/internal"
+	"github.com/CrystilAI/go-sdk/internal"
 	"github.com/tmc/langchaingo/callbacks"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/schema"
 )
 
-// langChainHandler is a LangChain callback handler that tracks LLM calls with Payloop.
+// langChainHandler is a LangChain callback handler that tracks LLM calls with Crystil.
 type langChainHandler struct {
 	client    *Client
 	startTime map[string]time.Time
 }
 
-// newLangChainHandler creates a new Payloop callback handler for LangChain.
+// newLangChainHandler creates a new Crystil callback handler for LangChain.
 func newLangChainHandler(client *Client) *langChainHandler {
 	return &langChainHandler{
 		client:    client,

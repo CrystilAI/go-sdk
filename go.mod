@@ -1,4 +1,4 @@
-module github.com/PayloopAI/go-sdk
+module github.com/CrystilAI/go-sdk
 
 go 1.24
 

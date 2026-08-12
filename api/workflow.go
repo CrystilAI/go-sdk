@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-// Workflow represents a Payloop workflow.
+// Workflow represents a Crystil workflow.
 type Workflow struct {
 	UUID  string `json:"uuid"`
 	Label string `json:"label"`

@@ -5,19 +5,19 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/PayloopAI/go-sdk"
+	"github.com/CrystilAI/go-sdk"
 )
 
 func main() {
-	payloopClient, err := payloop.New()
+	crystilClient, err := crystil.New()
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer payloopClient.Close()
+	defer crystilClient.Close()
 
 	ctx := context.Background()
 
-	workflows, err := payloopClient.Workflows().List(ctx)
+	workflows, err := crystilClient.Workflows().List(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -26,7 +26,7 @@ func main() {
 		fmt.Printf("%+v\n", workflow)
 	}
 
-	//workflowClient := payloopClient.Workflow("workflow-uuid")
+	//workflowClient := crystilClient.Workflow("workflow-uuid")
 	//err = workflowClient.Update(ctx, "New Label")
 	//if err != nil {
 	//	log.Fatal(err)

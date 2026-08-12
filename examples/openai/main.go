@@ -6,21 +6,21 @@ import (
 	"log"
 	"os"
 
-	"github.com/PayloopAI/go-sdk"
+	"github.com/CrystilAI/go-sdk"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 )
 
 func main() {
-	// Initialize Payloop client
-	payloopClient, err := payloop.New(payloop.WithAPIKey(os.Getenv("PAYLOOP_API_KEY")))
+	// Initialize Crystil client
+	crystilClient, err := crystil.New(crystil.WithAPIKey(os.Getenv("CRYSTIL_API_KEY")))
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer payloopClient.Close()
+	defer crystilClient.Close()
 
 	// Get wrapped HTTP client for OpenAI
-	httpClient := payloopClient.HTTPClient(payloop.ProviderOpenAI)
+	httpClient := crystilClient.HTTPClient(crystil.ProviderOpenAI)
 
 	// Create OpenAI client with your own configuration
 	openaiClient := openai.NewClient(
@@ -29,7 +29,7 @@ func main() {
 
 	// Set attribution to track costs by user (affects all future requests)
 	johnDoe := "John Doe"
-	err = payloopClient.SetAttribution(&payloop.Attribution{
+	err = crystilClient.SetAttribution(&crystil.Attribution{
 		ParentID:   "user-123",
 		ParentName: &johnDoe,
 	})
@@ -55,7 +55,7 @@ func main() {
 
 	// Update attribution for a different user (affects same openaiClient)
 	janeSmith := "Jane Smith"
-	err = payloopClient.SetAttribution(&payloop.Attribution{
+	err = crystilClient.SetAttribution(&crystil.Attribution{
 		ParentID:   "user-456",
 		ParentName: &janeSmith,
 	})

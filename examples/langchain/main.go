@@ -6,22 +6,22 @@ import (
 	"log"
 	"os"
 
-	"github.com/PayloopAI/go-sdk"
+	"github.com/CrystilAI/go-sdk"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/openai"
 )
 
 func main() {
-	// Initialize Payloop client
-	payloopClient, err := payloop.New(payloop.WithAPIKey(os.Getenv("PAYLOOP_API_KEY")))
+	// Initialize Crystil client
+	crystilClient, err := crystil.New(crystil.WithAPIKey(os.Getenv("CRYSTIL_API_KEY")))
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer payloopClient.Close()
+	defer crystilClient.Close()
 
 	// Set attribution to track costs by user (affects all future requests)
 	langchainUser := "LangChain User"
-	err = payloopClient.SetAttribution(&payloop.Attribution{
+	err = crystilClient.SetAttribution(&crystil.Attribution{
 		ParentID:   "user-langchain",
 		ParentName: &langchainUser,
 	})
@@ -31,10 +31,10 @@ func main() {
 
 	ctx := context.Background()
 
-	// Create Payloop callback handler for LangChain
-	handler := payloopClient.NewLangChainHandler()
+	// Create Crystil callback handler for LangChain
+	handler := crystilClient.NewLangChainHandler()
 
-	// Create LangChain LLM with Payloop callback
+	// Create LangChain LLM with Crystil callback
 	llm, err := openai.New(
 		openai.WithCallback(handler),
 	)
@@ -55,7 +55,7 @@ func main() {
 	fmt.Printf("Response: %s\n", response)
 
 	// Create a new transaction for the next request
-	newTxClient := payloopClient.NewTransaction()
+	newTxClient := crystilClient.NewTransaction()
 	handler2 := newTxClient.NewLangChainHandler()
 
 	llm2, err := openai.New(

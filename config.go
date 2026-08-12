@@ -1,4 +1,4 @@
-package payloop
+package crystil
 
 import (
 	"errors"
@@ -18,11 +18,11 @@ type config struct {
 // Option configures a Client.
 type Option func(*config) error
 
-// WithAPIKey sets the Payloop API key.
+// WithAPIKey sets the Crystil API key.
 func WithAPIKey(key string) Option {
 	return func(c *config) error {
 		if key == "" {
-			return errors.New("payloop: empty API key")
+			return errors.New("crystil: empty API key")
 		}
 		c.apiKey = key
 		return nil
@@ -33,7 +33,7 @@ func WithAPIKey(key string) Option {
 func WithTimeout(d time.Duration) Option {
 	return func(c *config) error {
 		if d <= 0 {
-			return errors.New("payloop: timeout must be positive")
+			return errors.New("crystil: timeout must be positive")
 		}
 		c.timeout = d
 		return nil
@@ -44,7 +44,7 @@ func WithTimeout(d time.Duration) Option {
 func WithCollectorURL(url string) Option {
 	return func(c *config) error {
 		if url == "" {
-			return errors.New("payloop: empty collector URL")
+			return errors.New("crystil: empty collector URL")
 		}
 		c.collectorURL = url
 		return nil
@@ -55,7 +55,7 @@ func WithCollectorURL(url string) Option {
 func WithAPIURL(url string) Option {
 	return func(c *config) error {
 		if url == "" {
-			return errors.New("payloop: empty API URL")
+			return errors.New("crystil: empty API URL")
 		}
 		c.apiURL = url
 		return nil

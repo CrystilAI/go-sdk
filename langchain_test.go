@@ -1,4 +1,4 @@
-package payloop
+package crystil
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 
 func init() {
 	// Enable test mode to prevent actual network calls
-	os.Setenv("PAYLOOP_TEST_MODE", "1")
+	os.Setenv("CRYSTIL_TEST_MODE", "1")
 }
 
 func TestNewLangChainHandlerCreation(t *testing.T) {

@@ -6,20 +6,20 @@ import (
 	"log"
 	"os"
 
-	"github.com/PayloopAI/go-sdk"
+	"github.com/CrystilAI/go-sdk"
 	"google.golang.org/genai"
 )
 
 func main() {
-	// Initialize Payloop client
-	payloopClient, err := payloop.New(payloop.WithAPIKey(os.Getenv("PAYLOOP_API_KEY")))
+	// Initialize Crystil client
+	crystilClient, err := crystil.New(crystil.WithAPIKey(os.Getenv("CRYSTIL_API_KEY")))
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer payloopClient.Close()
+	defer crystilClient.Close()
 
 	// Get wrapped HTTP client for Google
-	httpClient := payloopClient.HTTPClient(payloop.ProviderGoogle)
+	httpClient := crystilClient.HTTPClient(crystil.ProviderGoogle)
 
 	ctx := context.Background()
 
@@ -34,7 +34,7 @@ func main() {
 
 	// Set attribution to track costs by user (affects all future requests)
 	aliceJohnson := "Alice Johnson"
-	err = payloopClient.SetAttribution(&payloop.Attribution{
+	err = crystilClient.SetAttribution(&crystil.Attribution{
 		ParentID:   "user-789",
 		ParentName: &aliceJohnson,
 	})
@@ -64,7 +64,7 @@ func main() {
 
 	// Update attribution for a different user (affects same googleClient)
 	charlieBrown := "Charlie Brown"
-	err = payloopClient.SetAttribution(&payloop.Attribution{
+	err = crystilClient.SetAttribution(&crystil.Attribution{
 		ParentID:   "user-101",
 		ParentName: &charlieBrown,
 	})
