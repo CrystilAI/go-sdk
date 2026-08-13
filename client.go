@@ -10,7 +10,7 @@ import (
 	"github.com/tmc/langchaingo/callbacks"
 )
 
-const version = "0.1.0"
+const version = "0.2.1"
 
 // Client tracks LLM costs across providers.
 type Client struct {
