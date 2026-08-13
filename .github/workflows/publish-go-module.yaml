@@ -1,0 +1,148 @@
+name: Publish Go module
+
+# Publishes the module when a GitHub Release is published.
+#
+# Unlike javascript-sdk's publish-to-npm.yaml, there is no registry upload step
+# and no credentials of any kind — no token, no OIDC, no trusted publisher.
+# A Go module IS its git tag: the moment `v1.2.3` exists on a public repo,
+# `go get github.com/CrystilAI/go-sdk@v1.2.3` works. Nothing can be pushed to
+# make that more true.
+#
+# So this workflow does the two things that are still worth automating:
+#
+#   1. Gates the release on the checks that a bad tag would otherwise bake in
+#      permanently (see below).
+#   2. Warms proxy.golang.org and index.golang.org so the version is fetchable
+#      and listed on pkg.go.dev immediately, rather than whenever the first
+#      user happens to request it.
+#
+# The gating matters more here than it does for npm. A published npm version
+# can at least be deprecated; a Go version cannot be altered or withdrawn at
+# all. proxy.golang.org caches module content immutably and sum.golang.org
+# records its hash permanently, so a tag pointing at broken code is public
+# forever, and that version number can never be reused — re-tagging it serves
+# the original cached content or trips a checksum-mismatch error in users'
+# builds. The only remedy is to burn the number and release the next one.
+#
+# Because the checks below run AFTER the tag exists, a failure here does not
+# unpublish anything. It tells you the release is bad and that you need to fix
+# forward under a new version.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    # No secrets are consumed, so this environment exists only to give the
+    # release a link on pkg.go.dev and a place to hang required-reviewer rules.
+    environment:
+      name: go-module
+      url: https://pkg.go.dev/github.com/CrystilAI/go-sdk
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # merge-base below needs real history, not a shallow clone.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          # Single source of truth — tracks the toolchain go.mod declares.
+          go-version-file: go.mod
+
+      # A release cut from a side branch would publish code that was never
+      # reviewed on main, under a version number that can never be reclaimed.
+      - name: Verify the tag is on main
+        shell: bash -eo pipefail {0}
+        run: |
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag $GITHUB_REF_NAME ($GITHUB_SHA) is not an ancestor of main. Releases must be cut from main."
+            exit 1
+          fi
+          echo "$GITHUB_REF_NAME is contained in main."
+
+      # The version is dual-sourced: the git tag drives what users resolve,
+      # while the `version` constant in client.go drives the value reported in
+      # outgoing telemetry (config.version -> payload Version). They drift
+      # silently, and the resulting release cannot be corrected in place — so
+      # fail here rather than ship a module whose telemetry misreports itself.
+      - name: Verify version consistency
+        shell: bash -eo pipefail {0}
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          CONST=$(sed -n 's/^const version = "\(.*\)"$/\1/p' client.go)
+
+          echo "release tag : $TAG"
+          echo "client.go   : $CONST"
+
+          if [ -z "$CONST" ]; then
+            echo "::error::Could not parse the version constant from client.go."
+            exit 1
+          fi
+
+          if [ "$CONST" != "$TAG" ]; then
+            echo "::error::Release tag ($TAG) does not match the version constant in client.go ($CONST). Bump the constant."
+            exit 1
+          fi
+
+      - name: Verify formatting
+        shell: bash -eo pipefail {0}
+        run: |
+          UNFORMATTED=$(gofmt -l .)
+          if [ -n "$UNFORMATTED" ]; then
+            echo "::error::These files are not gofmt-clean:"
+            echo "$UNFORMATTED"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      # Builds every package including ./examples/..., which is where a rename
+      # or a dropped import surfaces first.
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        env:
+          CRYSTIL_TEST_MODE: '1'
+        run: go test ./...
+
+      # Asking the proxy for the version is what causes it to fetch the tag and
+      # notify index.golang.org, which is what puts it on pkg.go.dev. A fresh
+      # tag can take a few seconds to become visible, hence the retry.
+      #
+      # Resolving from an empty throwaway module (rather than this checkout)
+      # means this genuinely exercises the path a user takes: proxy fetch,
+      # checksum verification against sum.golang.org, module-path match. It is
+      # the same check as `npm pack --dry-run`, except it runs against the
+      # real published artifact.
+      - name: Publish to the module proxy and verify
+        shell: bash -eo pipefail {0}
+        run: |
+          VERSION="$GITHUB_REF_NAME"
+          WORKDIR=$(mktemp -d)
+          cd "$WORKDIR"
+          go mod init publishcheck >/dev/null
+
+          for attempt in 1 2 3 4 5 6; do
+            if GOPROXY=https://proxy.golang.org GOFLAGS=-mod=mod \
+               go get "github.com/CrystilAI/go-sdk@${VERSION}"; then
+              echo "Resolved github.com/CrystilAI/go-sdk@${VERSION} from the proxy."
+              exit 0
+            fi
+            echo "Attempt $attempt failed; the proxy may not see the tag yet. Retrying in 15s."
+            sleep 15
+          done
+
+          echo "::error::github.com/CrystilAI/go-sdk@${VERSION} did not resolve from proxy.golang.org."
+          exit 1
