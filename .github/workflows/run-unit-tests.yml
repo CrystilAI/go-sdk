@@ -1,0 +1,96 @@
+name: Run Unit Tests
+
+# Runs the same gates as publish-go-module.yaml, but on pull requests and
+# pushes to main — that is, BEFORE the tag exists rather than after.
+#
+# This matters more here than in the sibling SDKs. publish-go-module.yaml runs
+# gofmt / vet / build / test only once a Release has been published, and by then
+# the tag — which IS the published module — already exists. Those checks can
+# report a bad release; they cannot prevent one, and a Go version can never be
+# withdrawn, re-pointed, or reused (proxy.golang.org caches module content
+# immutably and sum.golang.org records its hash permanently). So the only place
+# a problem can still be caught for free is here, on the PR.
+#
+# Mirrors ../ruby-sdk/.github/workflows/run-unit-tests.yml,
+# ../javascript-sdk/.github/workflows/run-unit-tests.yml, and
+# ../python-sdk/.github/workflows/run-unit-tests.yml.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel in-progress runs for the same PR / branch when a new commit lands.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # Static checks run once — they don't vary by toolchain version. Uses
+  # go-version-file so the toolchain tracks whatever go.mod declares, exactly
+  # as publish-go-module.yaml does.
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # gofmt exits 0 even when it has reformatting to report, so the failure
+      # has to be derived from its output. Same form as the publish workflow.
+      - name: Verify formatting
+        shell: bash -eo pipefail {0}
+        run: |
+          UNFORMATTED=$(gofmt -l .)
+          if [ -n "$UNFORMATTED" ]; then
+            echo "::error::These files are not gofmt-clean:"
+            echo "$UNFORMATTED"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+  # Build and test across the toolchain floor plus both currently-supported Go
+  # releases. fail-fast is off so a regression on one version doesn't hide the
+  # others.
+  #
+  # Matrix rationale: 1.24 is what go.mod declares, so it is the oldest
+  # toolchain a consumer can be on and the version publish-go-module.yaml
+  # actually uses. 1.25 and 1.26 are the two releases Go currently supports.
+  # When go.mod's directive moves, move the floor entry with it.
+  test:
+    name: Test (Go ${{ matrix.go }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ['1.24', '1.25', '1.26']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go ${{ matrix.go }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+
+      # Builds every package including ./examples/..., which is where a rename
+      # or a dropped import surfaces first — the v0.2.0 rename left all seven
+      # examples failing to compile.
+      - name: Build
+        run: go build ./...
+
+      # CRYSTIL_TEST_MODE=1 keeps the collector from posting anywhere real.
+      - name: Test
+        env:
+          CRYSTIL_TEST_MODE: '1'
+        run: go test ./...
