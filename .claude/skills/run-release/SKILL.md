@@ -143,9 +143,18 @@ explicit confirmation to merge**. Do not merge on your own initiative.
 ## Step 5 — Merge
 
 ```bash
-gh pr merge --squash --delete-branch
+gh pr merge --merge --delete-branch
 git checkout main && git pull
 ```
+
+`--merge` is not a preference: the `Main Rules` ruleset on this repo sets
+`allowed_merge_methods: ["merge"]`, so `--squash` and `--rebase` are rejected outright.
+
+That ruleset also requires **1 approving review** and configures **no bypass actors**, and GitHub
+does not let you approve your own PR. So a release PR you opened cannot be merged by you alone —
+someone else has to review it. If nobody is available, `gh pr merge --auto --merge` queues the
+merge for the moment approval lands. Do not reach for `--admin`; bypassing a review requirement is
+the user's decision to make, not yours.
 
 ## GATE 2 — stop before publishing
 
