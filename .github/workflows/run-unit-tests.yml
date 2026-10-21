@@ -107,11 +107,12 @@ jobs:
         run: scripts/in-each-module.sh go build ./...
 
       # CRYSTIL_TEST_MODE=1 keeps the collector from posting anywhere real;
-      # providertest/ clears it for its fake collector.
+      # providertest/ clears it for its fake collector. -race catches a stream
+      # read and closed at once (TestStreamClosedWhileRead).
       - name: Test
         env:
           CRYSTIL_TEST_MODE: '1'
-        run: scripts/in-each-module.sh go test ./...
+        run: scripts/in-each-module.sh go test -race ./...
 
   # The job above tests the provider SDK versions providertest/go.mod pins, the
   # minimums README.md states. This one tests their newest releases, which can
@@ -143,4 +144,4 @@ jobs:
 
       - name: Test
         working-directory: providertest
-        run: go test ./...
+        run: go test -race ./...

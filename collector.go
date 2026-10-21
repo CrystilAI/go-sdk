@@ -40,11 +40,12 @@ func newCollector(cfg *config) *collector {
 	return c
 }
 
-// SendAsync queues analytics for async submission.
-func (c *collector) SendAsync(ctx context.Context, p internal.Payload) {
+// SendAsync queues analytics for async submission. It takes no context: a call
+// whose context has ended, as when the end user disconnects, still happened, so
+// it is still recorded.
+func (c *collector) SendAsync(p internal.Payload) {
 	select {
 	case c.queue <- p:
-	case <-ctx.Done():
 	default:
 		// Channel full, drop to prevent blocking
 	}

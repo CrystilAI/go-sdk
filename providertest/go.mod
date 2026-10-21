@@ -4,6 +4,7 @@ go 1.24
 
 require (
 	github.com/CrystilAI/go-sdk v0.0.0-00010101000000-000000000000
+	github.com/anthropics/anthropic-sdk-go v1.13.0
 	github.com/openai/openai-go/v3 v3.2.0
 	google.golang.org/genai v1.29.0
 )

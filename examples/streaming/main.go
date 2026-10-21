@@ -81,8 +81,8 @@ func streamingOpenAI(ctx context.Context, crystilClient *crystil.Client) {
 
 	fmt.Println() // New line after stream ends
 
-	// Analytics are automatically sent when the stream closes!
-	// The SDK accumulates chunks and reconstructs the complete response.
+	// Crystil records the call once the stream is read to its end. If you stop
+	// reading early, close the stream to record it.
 }
 
 func streamingAnthropic(ctx context.Context, crystilClient *crystil.Client) {

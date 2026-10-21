@@ -58,3 +58,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fetchable and listed on pkg.go.dev immediately
 
 ## [Unreleased]
+
+### Changed
+- Streamed OpenAI chat completions set `stream_options.include_usage`, so they are recorded with
+  tokens. The extra usage chunk is hidden from a caller that did not ask for it.
+- A response with status 400 or more, and a stream with no chunks, are no longer recorded.
+- A stream that fails after its first chunk is recorded as failed, with the reason, as soon as it
+  fails.
+
+### Fixed
+- Streams are recorded when read to their end, not only when closed, in the shapes the backend
+  reads.
+- Gemini streams, and event streams the request does not flag, reach the caller as they arrive.
+- A response body cut short made openai-go and anthropic-sdk-go send the call again.

@@ -69,20 +69,20 @@ CRYSTIL_TEST_MODE=1 go test ./...
 
 ```bash
 CRYSTIL_TEST_MODE=1 go test -race ./...                       # with the race detector
-CRYSTIL_TEST_MODE=1 go test -run TestReconstructGoogle ./...  # one test by name
+CRYSTIL_TEST_MODE=1 go test -run TestIncludeStreamUsage ./... # one test by name
 CRYSTIL_TEST_MODE=1 go test -v ./...                          # print each test
 go -C providertest test ./...                                 # the tests that use the provider SDKs
-CRYSTIL_TEST_MODE=1 scripts/in-each-module.sh go test ./...   # every module, as CI runs them
+CRYSTIL_TEST_MODE=1 scripts/in-each-module.sh go test -race ./...  # every module, as CI runs them
 ```
 
-The tests in `providertest/` drive the real provider SDKs (openai-go, genai) through the SDK and check what a fake collector receives; they clear `CRYSTIL_TEST_MODE` for it. None of these tests call an LLM provider or a Crystil service: they use local `httptest` servers or call the code directly. This repo has no integration tests against real providers.
+The tests in `providertest/` drive the real provider SDKs (openai-go, anthropic-sdk-go, genai) through the SDK and check what a fake collector receives; they clear `CRYSTIL_TEST_MODE` for it. None of these tests call an LLM provider or a Crystil service: they use local `httptest` servers or call the code directly. This repo has no integration tests against real providers.
 
 ### CI
 
 `.github/workflows/run-unit-tests.yml` runs on every pull request and every push to `main`:
 
 - **Lint:** `gofmt`, `go vet`, golangci-lint and a check that each `go.mod` is tidy, in every module.
-- **Test:** `go build ./...` and `go test ./...` in every module, on each Go version in the workflow's matrix: the `go.mod` version and the newer releases Go still supports.
+- **Test:** `go build ./...` and `go test -race ./...` in every module, on each Go version in the workflow's matrix: the `go.mod` version and the newer releases Go still supports.
 - **Test (latest provider SDKs):** the `providertest/` tests again, with each provider SDK upgraded to its newest release, on the newest Go. The versions the modules pin are the minimums `README.md` states; this job checks the newest ones.
 
 ## Release to the public repository

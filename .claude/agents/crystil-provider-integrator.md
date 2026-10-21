@@ -19,7 +19,7 @@ This means adding a new provider almost never requires touching `client.go`, `tr
 
 2. **Adding a new provider is, in order:**
    - Add a `Provider` constant in `provider.go` (`const ProviderXxx Provider = "xxx"`). The string value becomes `conversation.client.title` in the payload, so it must match Python.
-   - If the provider supports streaming **and its SSE event shape isn't already handled**, add a `reconstructXxx` method to `streamingResponseBody` in `streaming.go` and route to it from `reconstructResponse`. The reconstructed shape must structurally match what the provider returns from its *non-streaming* endpoint — that's the contract the backend extractor expects. Delegate to the `streaming-reconstructor` agent for the shape work.
+   - If the provider supports streaming **and its SSE event shape isn't already handled**, choose its recorded shape in `reconstructResponse` (`streaming.go`). It must be the shape the Python SDK records for that provider's streams, which is what the backend reads, not the provider's unstreamed shape. If its SDK stops reading at an error event and raises it, teach `errorEvent` that event, so the stream is recorded as failed. Delegate to the `streaming-reconstructor` agent for the shape work.
    - Add an example under `examples/<provider>/main.go`, in the `examples/` module, showing the wiring (`crystilClient.HTTPClient(crystil.ProviderXxx)` → provider SDK constructor).
    - Add a test in `providertest/` that builds the provider's SDK client on `newCollector(t)`'s HTTP client and calls a `httptest.Server` returning a canned response of that provider's shape. Delegate to `sdk-test-author` if needed.
    - Add the provider SDK's module, at the version `providertest/` pins, to the "Supported versions" table in `README.md`, and to the `test-latest-sdks` job's list in `.github/workflows/run-unit-tests.yml`.
@@ -30,7 +30,7 @@ This means adding a new provider almost never requires touching `client.go`, `tr
 
 5. **`tracingTransport` reads `client.attribution` dynamically every call** (`transport.go:buildPayload`). That's load-bearing — see `TestHTTPClientMutableAttribution`. If you refactor attribution into a struct passed at `HTTPClient(...)` time, you'll break the documented "set attribution later, requests pick it up" pattern. Don't do this without a deliberate API change.
 
-6. **Streaming detection is body-content-based** (`isStreamingRequest` checks for `"stream": true` in the request JSON). Google's `GenerateContentStream` uses a URL suffix (`:streamGenerateContent`) and does **not** set `stream: true`. If the Google SDK is currently sending `stream: true`, fine — verify against the running `google.golang.org/genai` version before refactoring. If you need URL-based detection, add it alongside the body check, don't replace it.
+6. **Streaming detection has a body check, a URL check and a response check.** `isStreamingRequest` looks for `"stream": true` in the request JSON; `RoundTrip` also treats a path ending in `:streamGenerateContent` as a stream, since Google's `GenerateContentStream` sets no body flag, and a response whose `Content-Type` is `text/event-stream` (`isEventStream`). A new provider whose streams match none of these, such as one that streams JSON with no flag in the request, needs its own check added alongside them — a missed stream is held back from the caller until it ends.
 
 7. **No retry in `tracingTransport`.** The provider SDK owns retry semantics. Double-retry produces duplicate LLM charges. The `retryTransport` in `collector.go` is for the Crystil collector's *own* HTTP client only — it must not be wired into the user-facing path.
 
@@ -42,12 +42,12 @@ This means adding a new provider almost never requires touching `client.go`, `tr
 - `scripts/in-each-module.sh go build ./...` clean (the examples module compiles against the changed library surface).
 - The SDK's `go.mod` still lists only what the SDK imports; the provider's SDK goes in `examples/` and `providertest/` only.
 - Provider's `title` string in `provider.go` matches Python's constant in `../python-sdk/crystil/_constants.py`.
-- Streaming reconstruction produces a payload `conversation.response` that structurally matches the provider's non-streaming response shape (test against a recorded fixture if you can).
+- A streamed payload's `conversation.response` matches what the Python SDK records for the same stream (test against a fixture in `../backend/payloads/collector/` if you can).
 - CLAUDE.md "Streaming reconstruction" table updated if you added or changed a provider's event shape.
 - An example under `examples/<provider>/main.go` demonstrates wiring.
 
 ## What to escalate
 
 - A provider whose Go SDK doesn't accept an HTTP client *and* has no callback interface — propose the integration approach (callback wrapper around a goroutine? a custom transport on a sub-resource?) before writing code.
-- A streaming event shape that doesn't fit the "merge deltas into a single response object" model (e.g. a provider that emits multi-turn function calls mid-stream) — surface it; current reconstructors assume a single accumulating text/content stream.
+- A provider whose streams the Python SDK doesn't record, or the backend doesn't read yet — the recorded shape is the backend's call; ask before inventing one.
 - A provider that requires per-request configuration the caller can't pre-bake into the `*http.Client` (e.g. a header that varies per call based on the message body) — this hits the limits of the transport-interception model and may require a different hook.

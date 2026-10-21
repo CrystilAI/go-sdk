@@ -15,7 +15,7 @@ type Payload struct {
 type Conversation struct {
 	Client   ClientInfo             `json:"client"`
 	Query    map[string]interface{} `json:"query"`
-	Response map[string]interface{} `json:"response"`
+	Response interface{}            `json:"response"` // an object, or for some streams the list of events
 }
 
 // ClientInfo describes the LLM provider client.

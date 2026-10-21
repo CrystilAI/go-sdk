@@ -111,7 +111,7 @@ func (h *langChainHandler) HandleLLMEnd(ctx context.Context, result map[string]a
 		},
 	}
 
-	h.client.collector.SendAsync(ctx, payload)
+	h.client.collector.SendAsync(payload)
 }
 
 // HandleLLMGenerateContentEnd is called when content generation finishes.
@@ -206,7 +206,7 @@ func (h *langChainHandler) HandleLLMGenerateContentEnd(ctx context.Context, resp
 		},
 	}
 
-	h.client.collector.SendAsync(ctx, payload)
+	h.client.collector.SendAsync(payload)
 }
 
 // HandleLLMError is called when an LLM encounters an error.
@@ -279,7 +279,7 @@ func (h *langChainHandler) HandleLLMError(ctx context.Context, err error) {
 		},
 	}
 
-	h.client.collector.SendAsync(ctx, payload)
+	h.client.collector.SendAsync(payload)
 }
 
 // HandleChainStart is called when a chain starts processing.

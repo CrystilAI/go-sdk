@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/CrystilAI/go-sdk/internal"
@@ -16,12 +17,16 @@ import (
 // It reads transparently while building a complete response for tracking.
 type streamingResponseBody struct {
 	reader    io.ReadCloser
+	mu        sync.Mutex // guards buffer, failure and checked: send can run while another goroutine reads
 	buffer    *bytes.Buffer
+	failure   string // why the stream failed, or ""
+	checked   int    // how much of buffer findErrorEvent has looked at
 	client    *Client
 	provider  Provider
 	reqBody   []byte
 	startTime time.Time
 	ctx       context.Context
+	sendOnce  sync.Once
 }
 
 // newStreamingResponseBody creates a streaming wrapper.
@@ -44,21 +49,111 @@ func newStreamingResponseBody(
 	}
 }
 
-// Read implements io.Reader, accumulating chunks as they're read.
+// Read implements io.Reader, accumulating chunks as they're read. It sends
+// analytics at the end of the stream, or when the stream fails: openai-go and
+// anthropic-sdk-go read no further, and leave closing the body to the caller.
 func (s *streamingResponseBody) Read(p []byte) (n int, err error) {
 	n, err = s.reader.Read(p)
+	failed := false
 	if n > 0 {
+		s.mu.Lock()
 		s.buffer.Write(p[:n])
+		failed = s.findErrorEvent()
+		s.mu.Unlock()
+	}
+	// A read that fails while the context is live fails the stream, as the Python
+	// SDK records it. One that fails after the context ended was stopped by the caller.
+	if err != nil && err != io.EOF && s.ctx.Err() == nil {
+		s.mu.Lock()
+		if s.failure == "" {
+			s.failure = err.Error()
+		}
+		s.mu.Unlock()
+		failed = true
+	}
+	if err == io.EOF || failed {
+		s.sendOnce.Do(s.send)
 	}
 	return n, err
 }
 
-// Close implements io.Closer, sending analytics when stream completes.
+// findErrorEvent looks at each whole event not looked at yet for the error
+// event the provider SDK stops reading at, keeps the first one's message as the
+// stream's failure, and reports whether the stream has failed. Call it with mu held.
+func (s *streamingResponseBody) findErrorEvent() bool {
+	for s.failure == "" {
+		rest := s.buffer.Bytes()[s.checked:]
+		end := eventEnd(rest)
+		if end < 0 {
+			break
+		}
+		for _, line := range bytes.Split(rest[:end], []byte("\n")) {
+			data, ok := bytes.CutPrefix(bytes.TrimRight(line, "\r"), []byte("data:"))
+			if !ok || !bytes.Contains(data, []byte(`"error"`)) {
+				continue
+			}
+			var chunk map[string]interface{}
+			if json.Unmarshal(data, &chunk) != nil {
+				continue
+			}
+			if message, ok := errorEvent(s.provider, chunk); ok {
+				s.failure = message
+				break
+			}
+		}
+		s.checked += end
+	}
+	return s.failure != ""
+}
+
+// errorEvent reports whether chunk is an error event the provider SDK stops
+// reading at and raises, and returns its message: for OpenAI a chunk whose
+// "error" is not null, for Anthropic one of type "error". Gemini's errors are chunks.
+func errorEvent(provider Provider, chunk map[string]interface{}) (string, bool) {
+	switch {
+	case provider == ProviderOpenAI && chunk["error"] != nil:
+	case provider == ProviderAnthropic && chunk["type"] == "error":
+	default:
+		return "", false
+	}
+	if e, ok := chunk["error"].(map[string]interface{}); ok {
+		if message, ok := e["message"].(string); ok && message != "" {
+			return message, true
+		}
+	}
+	message, _ := json.Marshal(chunk["error"])
+	return string(message), true
+}
+
+// Close implements io.Closer, sending analytics for a stream the caller
+// stopped reading before its end. It may run while another goroutine reads.
 func (s *streamingResponseBody) Close() error {
 	defer s.reader.Close()
+	s.sendOnce.Do(s.send)
+	return nil
+}
 
-	// Reconstruct complete response from SSE chunks
+// send builds the analytics payload from the stream read so far and sends it.
+// Call it through sendOnce: a stream sends one payload.
+func (s *streamingResponseBody) send() {
+	// Reconstruct complete response from SSE chunks. A stream with none is not
+	// recorded, as the Python SDK records none: it holds no call to count.
 	response := s.reconstructResponse()
+	if response == nil {
+		return
+	}
+
+	s.mu.Lock()
+	var exc *string
+	if s.failure != "" {
+		failure := s.failure
+		exc = &failure
+	}
+	s.mu.Unlock()
+	status := "succeeded"
+	if exc != nil {
+		status = "failed"
+	}
 
 	// Parse request
 	var query map[string]interface{}
@@ -108,8 +203,8 @@ func (s *streamingResponseBody) Close() error {
 				Key: s.client.cfg.apiKey,
 			},
 			FNFG: internal.FNFGInfo{
-				Exc:    nil,
-				Status: "succeeded",
+				Exc:    exc,
+				Status: status,
 			},
 			SDK: internal.SDKInfo{
 				Client:  "go",
@@ -125,204 +220,128 @@ func (s *streamingResponseBody) Close() error {
 		},
 	}
 
-	s.client.collector.SendAsync(s.ctx, payload)
-	return nil
+	s.client.collector.SendAsync(payload)
 }
 
-// reconstructResponse parses SSE chunks and builds a complete response object.
-// Supports OpenAI, Anthropic, and Google streaming formats.
-func (s *streamingResponseBody) reconstructResponse() map[string]interface{} {
+// reconstructResponse parses the SSE chunks into the response to record, in the
+// shape the Python SDK records for each provider, which is what the backend reads.
+// It returns nil for a stream with no chunks.
+func (s *streamingResponseBody) reconstructResponse() interface{} {
+	s.mu.Lock()
 	content := s.buffer.String()
+	s.mu.Unlock()
 	scanner := bufio.NewScanner(strings.NewReader(content))
+	// A Responses API event holds the whole Response on one line, which can pass
+	// the scanner's default 64 KiB limit.
+	scanner.Buffer(nil, len(content)+1)
 
 	var chunks []map[string]interface{}
-	var reconstructed map[string]interface{}
-
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		// SSE format: "data: {json}"
-		if strings.HasPrefix(line, "data: ") {
-			data := strings.TrimPrefix(line, "data: ")
+		// SSE format: "data: {json}", where the space is optional
+		if data, ok := strings.CutPrefix(line, "data:"); ok {
+			data = strings.TrimPrefix(data, " ")
 
 			// Skip [DONE] markers
 			if data == "[DONE]" {
 				continue
 			}
 
-			// Parse chunk
+			// Parse chunk. The provider SDK raises an error event instead of returning
+			// it, so it is no chunk of the call, as the Python SDK records it.
 			var chunk map[string]interface{}
 			if err := json.Unmarshal([]byte(data), &chunk); err == nil {
-				chunks = append(chunks, chunk)
+				if _, isError := errorEvent(s.provider, chunk); !isError {
+					chunks = append(chunks, chunk)
+				}
 			}
 		}
 	}
 
 	if len(chunks) == 0 {
-		return map[string]interface{}{}
+		return nil
 	}
 
-	// Start with the first chunk as the base
-	reconstructed = make(map[string]interface{})
-	for k, v := range chunks[0] {
-		reconstructed[k] = v
+	if s.provider == ProviderOpenAI {
+		if response := openAIResponse(chunks); response != nil {
+			return response
+		}
+		return openAIChatResponse(chunks)
 	}
-
-	// Merge chunks based on provider format
-	switch s.provider {
-	case ProviderOpenAI:
-		reconstructed = s.reconstructOpenAI(chunks)
-	case ProviderAnthropic:
-		reconstructed = s.reconstructAnthropic(chunks)
-	case ProviderGoogle:
-		reconstructed = s.reconstructGoogle(chunks)
-	}
-
-	return reconstructed
+	// Anthropic and Google: the events as sent. The backend reads a list as a
+	// stream, and takes usage, stop reasons and tool calls from the events.
+	return chunks
 }
 
-// reconstructOpenAI merges OpenAI streaming chunks.
-func (s *streamingResponseBody) reconstructOpenAI(chunks []map[string]interface{}) map[string]interface{} {
-	if len(chunks) == 0 {
-		return map[string]interface{}{}
-	}
-
-	result := make(map[string]interface{})
-	for k, v := range chunks[0] {
-		result[k] = v
-	}
-
-	// Accumulate content from all chunks
-	var content strings.Builder
-	var role string
-
+// openAIResponse returns the Response object a Responses API stream ends with,
+// or nil for a Chat Completions stream. Each "response.*" event that carries the
+// Response holds a newer copy, so the last one wins.
+func openAIResponse(chunks []map[string]interface{}) map[string]interface{} {
+	var response map[string]interface{}
 	for _, chunk := range chunks {
-		if choices, ok := chunk["choices"].([]interface{}); ok && len(choices) > 0 {
-			if choice, ok := choices[0].(map[string]interface{}); ok {
-				if delta, ok := choice["delta"].(map[string]interface{}); ok {
-					if r, ok := delta["role"].(string); ok {
-						role = r
-					}
-					if c, ok := delta["content"].(string); ok {
-						content.WriteString(c)
-					}
-				}
-			}
+		eventType, _ := chunk["type"].(string)
+		if r, ok := chunk["response"].(map[string]interface{}); ok && strings.HasPrefix(eventType, "response.") {
+			response = r
 		}
 	}
-
-	// Build final message format
-	if role != "" || content.Len() > 0 {
-		result["choices"] = []map[string]interface{}{
-			{
-				"message": map[string]interface{}{
-					"role":    role,
-					"content": content.String(),
-				},
-				"finish_reason": "stop",
-				"index":         0,
-			},
-		}
-	}
-
-	return result
+	return response
 }
 
-// reconstructAnthropic merges Anthropic streaming chunks.
-func (s *streamingResponseBody) reconstructAnthropic(chunks []map[string]interface{}) map[string]interface{} {
-	if len(chunks) == 0 {
-		return map[string]interface{}{}
-	}
-
-	result := make(map[string]interface{})
-	var content strings.Builder
-
-	// Find message_start event for base structure
+// openAIChatResponse merges a chat completion stream's chunks, so choices keeps
+// each chunk's delta and usage comes from the last chunk. Each delta gets a
+// content key, null if the chunk had none: the backend reads it without a default.
+func openAIChatResponse(chunks []map[string]interface{}) map[string]interface{} {
+	merged := map[string]interface{}{}
 	for _, chunk := range chunks {
-		if eventType, ok := chunk["type"].(string); ok && eventType == "message_start" {
-			if message, ok := chunk["message"].(map[string]interface{}); ok {
-				for k, v := range message {
-					result[k] = v
-				}
-			}
-			break
+		mergeChunk(merged, chunk)
+	}
+	choices, _ := merged["choices"].([]interface{})
+	for _, c := range choices {
+		choice, ok := c.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		delta, ok := choice["delta"].(map[string]interface{})
+		if !ok {
+			delta = map[string]interface{}{}
+			choice["delta"] = delta
+		}
+		if _, ok := delta["content"]; !ok {
+			delta["content"] = nil
 		}
 	}
-
-	// Accumulate content from content_block_delta events
-	for _, chunk := range chunks {
-		if eventType, ok := chunk["type"].(string); ok {
-			if eventType == "content_block_delta" {
-				if delta, ok := chunk["delta"].(map[string]interface{}); ok {
-					if text, ok := delta["text"].(string); ok {
-						content.WriteString(text)
-					}
-				}
-			}
-		}
-	}
-
-	// Build final content array
-	if content.Len() > 0 {
-		result["content"] = []map[string]interface{}{
-			{
-				"type": "text",
-				"text": content.String(),
-			},
-		}
-	}
-
-	return result
+	return merged
 }
 
-// reconstructGoogle merges Google GenAI streaming chunks.
-func (s *streamingResponseBody) reconstructGoogle(chunks []map[string]interface{}) map[string]interface{} {
-	if len(chunks) == 0 {
-		return map[string]interface{}{}
-	}
-
-	result := make(map[string]interface{})
-	for k, v := range chunks[0] {
-		result[k] = v
-	}
-
-	// Accumulate content from all chunks
-	var content strings.Builder
-
-	for _, chunk := range chunks {
-		if candidates, ok := chunk["candidates"].([]interface{}); ok && len(candidates) > 0 {
-			if candidate, ok := candidates[0].(map[string]interface{}); ok {
-				if contentObj, ok := candidate["content"].(map[string]interface{}); ok {
-					if parts, ok := contentObj["parts"].([]interface{}); ok {
-						for _, part := range parts {
-							if partMap, ok := part.(map[string]interface{}); ok {
-								if text, ok := partMap["text"].(string); ok {
-									content.WriteString(text)
-								}
-							}
-						}
-					}
-				}
+// mergeChunk merges chunk into data as the Python SDK's merge_chunk does: lists
+// are appended, objects merged, and anything else replaced.
+func mergeChunk(data, chunk map[string]interface{}) map[string]interface{} {
+	for key, value := range chunk {
+		switch have := data[key].(type) {
+		case []interface{}:
+			if more, ok := value.([]interface{}); ok {
+				data[key] = append(have, more...)
+				continue
+			}
+		case map[string]interface{}:
+			if more, ok := value.(map[string]interface{}); ok {
+				mergeChunk(have, more)
+				continue
 			}
 		}
+		data[key] = ownCopy(value)
 	}
+	return data
+}
 
-	// Build final candidates format
-	if content.Len() > 0 {
-		result["candidates"] = []map[string]interface{}{
-			{
-				"content": map[string]interface{}{
-					"parts": []map[string]interface{}{
-						{
-							"text": content.String(),
-						},
-					},
-					"role": "model",
-				},
-				"finishReason": "STOP",
-			},
-		}
+// ownCopy copies a list or object, so a later merge never changes a chunk.
+func ownCopy(value interface{}) interface{} {
+	switch v := value.(type) {
+	case []interface{}:
+		return append([]interface{}(nil), v...)
+	case map[string]interface{}:
+		return mergeChunk(map[string]interface{}{}, v)
 	}
-
-	return result
+	return value
 }

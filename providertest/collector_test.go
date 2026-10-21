@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	crystil "github.com/CrystilAI/go-sdk"
 )
@@ -17,17 +18,18 @@ import (
 // collector is a fake Crystil collector that keeps every payload the SDK sends,
 // as the backend would receive it.
 type collector struct {
-	client *crystil.Client
-	mu     sync.Mutex
-	got    []map[string]any
-	closed sync.Once
+	client  *crystil.Client
+	mu      sync.Mutex
+	got     []map[string]any
+	arrived chan struct{}
+	closed  sync.Once
 }
 
 // newCollector returns a fake collector whose client sends to it.
 func newCollector(t *testing.T) *collector {
 	t.Helper()
 	t.Setenv("CRYSTIL_TEST_MODE", "") // in test mode the SDK sends nothing
-	c := &collector{}
+	c := &collector{arrived: make(chan struct{}, 100)}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var p map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
@@ -37,6 +39,7 @@ func newCollector(t *testing.T) *collector {
 		c.mu.Lock()
 		c.got = append(c.got, p)
 		c.mu.Unlock()
+		c.arrived <- struct{}{}
 	}))
 	t.Cleanup(server.Close)
 	client, err := crystil.New(crystil.WithAPIKey("test-key"), crystil.WithCollectorURL(server.URL))
@@ -59,6 +62,27 @@ func (c *collector) payloads() []map[string]any {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.got
+}
+
+// payload returns the one payload the collector received.
+func (c *collector) payload(t *testing.T) map[string]any {
+	t.Helper()
+	got := c.payloads()
+	if len(got) != 1 {
+		t.Fatalf("collector got %d payloads, want 1", len(got))
+	}
+	return got[0]
+}
+
+// waitForPayload waits for a payload to reach the collector while the client
+// stays open.
+func (c *collector) waitForPayload(t *testing.T) {
+	t.Helper()
+	select {
+	case <-c.arrived:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no payload reached the collector")
+	}
 }
 
 // get returns the value at a dotted path in a decoded JSON object, or nil.
