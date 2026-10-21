@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -51,9 +52,10 @@ func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		}
 	}
 	req.Body = io.NopCloser(bytes.NewReader(reqBody))
+	query := t.buildQuery(req.URL.Path, reqBody)
 
 	// Check if this is a streaming request. Gemini marks a stream in the URL, not the body.
-	isStreaming := isStreamingRequest(reqBody) || strings.HasSuffix(req.URL.Path, ":streamGenerateContent")
+	isStreaming := isStreamingRequest(query) || strings.HasSuffix(req.URL.Path, ":streamGenerateContent")
 
 	info := t.clientInfo(req.Header)
 
@@ -77,7 +79,7 @@ func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			t.client,
 			t.provider,
 			info,
-			reqBody,
+			query,
 			start,
 			req.Context(),
 		)
@@ -96,11 +98,55 @@ func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
 		// Build and send analytics payload async
-		payload := t.buildPayload(req.Context(), reqBody, respBody, info, start, time.Now())
+		payload := t.buildPayload(req.Context(), query, respBody, info, start, time.Now())
 		t.client.collector.SendAsync(payload)
 	}
 
 	return resp, nil
+}
+
+// geminiURLModel matches the model in a Gemini generate path, as genai builds it:
+// ".../models/gemini-2.0-flash:generateContent", or ".../publishers/google/models/..." on Vertex.
+// Other calls keep no model, or the backend records a countTokens as a model call.
+var geminiURLModel = regexp.MustCompile(`/models/([^/:]+):(generateContent|streamGenerateContent)$`)
+
+// buildQuery parses the request body to record. Gemini names its model only in
+// the URL path, so the model is added from there. The bytes sent are not changed.
+func (t *tracingTransport) buildQuery(path string, reqBody []byte) map[string]interface{} {
+	var query map[string]interface{}
+	if len(reqBody) > 0 {
+		_ = json.Unmarshal(reqBody, &query)
+	}
+	if t.provider == ProviderOpenAI && strings.HasSuffix(path, "/chat/completions") {
+		addMissingContent(query)
+	}
+	if t.provider != ProviderGoogle || query["model"] != nil {
+		return query
+	}
+
+	match := geminiURLModel.FindStringSubmatch(path)
+	if match == nil {
+		return query
+	}
+	if query == nil {
+		query = map[string]interface{}{}
+	}
+	query["model"] = match[1]
+	return query
+}
+
+// addMissingContent gives each chat message sent with no content a null one, as
+// the Python SDK records it: openai-go and go-openai leave it out of an assistant
+// message with only tool calls, and the backend reads it with no default.
+func addMissingContent(query map[string]interface{}) {
+	messages, _ := query["messages"].([]interface{})
+	for _, m := range messages {
+		if message, ok := m.(map[string]interface{}); ok {
+			if _, ok := message["content"]; !ok {
+				message["content"] = nil
+			}
+		}
+	}
 }
 
 // clientInfo names the library that sent the request. A request langchaingo
@@ -114,14 +160,10 @@ func (t *tracingTransport) clientInfo(header http.Header) internal.ClientInfo {
 }
 
 // buildPayload constructs the analytics payload for a call that was not streamed.
-func (t *tracingTransport) buildPayload(ctx context.Context, reqBody, respBody []byte, info internal.ClientInfo, start, end time.Time) internal.Payload {
-	var query map[string]interface{}
+func (t *tracingTransport) buildPayload(ctx context.Context, query map[string]interface{}, respBody []byte, info internal.ClientInfo, start, end time.Time) internal.Payload {
 	var response map[string]interface{}
 
-	// Parse request and response bodies
-	if len(reqBody) > 0 {
-		_ = json.Unmarshal(reqBody, &query)
-	}
+	// Parse response body
 	if len(respBody) > 0 {
 		_ = json.Unmarshal(respBody, &response)
 	}
@@ -300,21 +342,7 @@ func isEventStream(resp *http.Response) bool {
 	return err == nil && mediaType == "text/event-stream"
 }
 
-// isStreamingRequest checks if the request body indicates streaming.
-func isStreamingRequest(body []byte) bool {
-	if len(body) == 0 {
-		return false
-	}
-
-	var req map[string]interface{}
-	if err := json.Unmarshal(body, &req); err != nil {
-		return false
-	}
-
-	// Check for "stream": true
-	if stream, ok := req["stream"].(bool); ok && stream {
-		return true
-	}
-
-	return false
+// isStreamingRequest checks if the parsed request body asks for a stream.
+func isStreamingRequest(query map[string]interface{}) bool {
+	return query["stream"] == true
 }

@@ -55,19 +55,21 @@ RoundTrip(req)
   req = req.Clone(req.Context())                   // never change the caller's request
   reqBody = includeStreamUsage(...)                 // OpenAI chat streams only: ask for usage
   req.Body = NopCloser(reqBody)
-  isStreaming = isStreamingRequest(reqBody)        // JSON-parses, checks "stream":true
+  query = buildQuery(req.URL.Path, reqBody)        // parsed body, plus Gemini's model from the URL
+                                                   // and null content for OpenAI chat messages sent with none
+  isStreaming = isStreamingRequest(query)          // "stream":true in the parsed body
              || path ends ":streamGenerateContent" // Gemini
   resp, err = t.base.RoundTrip(req)                // execute downstream
   if err: return nil, err                          // network failure → no payload
   if resp.StatusCode >= 400: return resp, nil      // failed call → no payload
   if isStreaming || Content-Type is text/event-stream:
-    resp.Body = streamingResponseBody{reader: resp.Body, ...}
+    resp.Body = streamingResponseBody{reader: resp.Body, query, ...}
     if includeStreamUsage changed the request: resp.Body = usageChunkFilter{resp.Body}
   else:
     respBody, err = captureBody(resp.Body)
     if err: resp.Body = respBody, then err; return resp, nil  // no payload
     resp.Body = NopCloser(respBody)
-    collector.SendAsync(ctx, buildPayload(reqBody, respBody, start, time.Now()))
+    collector.SendAsync(buildPayload(query, respBody, start, time.Now()))
   return resp, nil
 ```
 
@@ -75,7 +77,11 @@ A failed call sends no payload, as the Python SDK sends none: a response with a 
 
 A stream that fails after its first chunk is sent marked `failed`, with the reason in `exc`, as Python sends it. It fails on a read error while the request's context is live, or on the error event openai-go and anthropic-sdk-go stop reading at (`errorEvent`: OpenAI's top-level `error` that is not null, Anthropic's `type: "error"`). Neither SDK reads to the end after that, and their examples never close the stream, so it is sent at once (`TestFailedStreamRecorded`, `TestStreamErrorRecordedFailed`). The error event is left out of the response, as Python's SDKs raise it rather than return it, so a stream with only an error event sends nothing (`TestErrorOnlyStreamNotRecorded`). A read that fails after the context ended was the caller stopping the stream, not a failure (`TestCanceledStreamNotFailed`). Python fails neither the Responses API's `response.failed` and `type: "error"` events nor Gemini's error chunks, and neither does Go.
 
-A call's transaction and attribution come from its context (`context.go`), not from anything fixed at `HTTPClient(...)` time. `crystil.NewTransaction(ctx)` and `crystil.SetAttribution(ctx, attr)` store a transaction ID and an attribution in the context the caller passes to the provider SDK, which passes it on to the request; `newPayload`, which builds the payload for streamed and unstreamed calls alike, reads them from `req.Context()`. A call whose context has no transaction is recorded under the client's own, which `New` starts, and one with no attribution has none. The client has no methods to change either, so a caller starts a transaction or changes its attribution with no new HTTP or provider clients, and requests handled at the same time each keep their own (`examples/transactions`). `TestContextTransactionAndAttribution` (`providertest/`) checks that every supported library passes the context through.
+openai-go and go-openai leave `content` out of an assistant message that has only tool calls, and the backend's chat extractors read each message's `content` with no default, so the call would be quarantined. For a path ending in `/chat/completions`, `buildQuery` gives such a message `content: null` in the recorded query, as Python records the message; the bytes sent are not changed (`TestQueryMessagesHaveContent`, `TestToolLoopQueryHasContent`).
+
+The Gemini REST body never names the model; `google.golang.org/genai` puts it in the URL path (`.../models/{model}:generateContent`, `.../publishers/google/models/{model}:...` on Vertex). `buildQuery` adds that bare id to `query.model` for `ProviderGoogle`, as Python's query, the call's arguments, names it. Only those generate paths get it: the backend would record any other call that names a model, such as `countTokens`, as a call to that model (`TestGoogleQueryNamesModel`). The URL itself is never recorded.
+
+A call's transaction and attribution come from its context (`context.go`), not from anything fixed at `HTTPClient(...)` time. `crystil.NewTransaction(ctx)` and `crystil.SetAttribution(ctx, attr)` store a transaction ID and an attribution in the context the caller passes to the provider SDK, which passes it on to the request; `newPayload`, which builds the payload for streamed and unstreamed calls alike, reads them from `req.Context()`. A call whose context has no transaction is recorded under the client's own, which `New` starts, and one with no attribution has none. The client has no methods to change either, so a caller starts a transaction or changes its attribution with no new HTTP or provider clients, and requests handled at the same time each keep their own (`examples/transactions`). `SetAttribution` stores the payload map built from `attr`'s values, not `attr` itself, so a caller that reuses one `Attribution` changes no context it already made (`TestSetAttributionKeepsItsValues`). `TestContextTransactionAndAttribution` (`providertest/`) checks that every supported library passes the context through.
 
 For a streamed OpenAI chat completion, `includeStreamUsage` sets `stream_options.include_usage` in the request, as the Python SDK does: without it OpenAI sends no usage, and the call is recorded with no tokens. OpenAI then ends the stream with one more chunk, which has usage and an empty `choices`. When the request did not already ask for it, `usageChunkFilter` hides that chunk from the caller, whose code may read `chunk.Choices[0]` without checking the length and panic; the recorded stream, read below the filter, keeps it (`TestStreamUsageChunkOnlyWhenAsked`, `TestUsageChunkFilter`). The Responses API rejects that option, so only paths ending in `/chat/completions` get it. `RoundTrip` changes the body on a copy of the request, as the `http.RoundTripper` contract requires: on a 307 or 308, `http.Client` sends the caller's own request again, which with the changed body would get no filter (`TestRedirectedStreamHidesUsageChunk`, `TestRoundTripLeavesRequestAlone`).
 
@@ -96,7 +102,7 @@ A streamed `conversation.response` takes the shape the Python SDK records for th
 
 `[DONE]` markers and non-`data:` lines (event headers, comments, blank lines) are silently dropped. An OpenAI stream whose events carry a `response` goes to `openAIResponse` instead of `openAIChatResponse`, since both APIs share `ProviderOpenAI`. Lines have no length limit: a Responses event holds the whole response on one line (`TestOpenAIResponsesStream`). `TestStreamedOpenAIChat` and `TestStreamedEventLists` pin these shapes.
 
-Streaming detection checks the request body, the URL path and the response's `Content-Type`: `isStreamingRequest` JSON-parses `req.Body` and looks for `"stream": true` (OpenAI, Anthropic); `RoundTrip` also treats a URL path ending in `:streamGenerateContent` as a stream, because `google.golang.org/genai` sends no flag in the body, and a response whose `Content-Type` is `text/event-stream` (`isEventStream`), because some calls mark the stream only where the transport doesn't look, such as openai-go's streamed transcriptions, in a multipart form field. A stream that misses every check takes the non-streaming path, whose `captureBody` holds the whole stream back from the caller until it ends — `TestGeminiStreamPassesThrough` and `TestEventStreamPassesThrough` guard this. langchaingo's Google streams are one JSON array sent as `application/json`, so the path check stays.
+Streaming detection checks the request body, the URL path and the response's `Content-Type`: `isStreamingRequest` looks for `"stream": true` in the parsed body (OpenAI, Anthropic); `RoundTrip` also treats a URL path ending in `:streamGenerateContent` as a stream, because `google.golang.org/genai` sends no flag in the body, and a response whose `Content-Type` is `text/event-stream` (`isEventStream`), because some calls mark the stream only where the transport doesn't look, such as openai-go's streamed transcriptions, in a multipart form field. A stream that misses every check takes the non-streaming path, whose `captureBody` holds the whole stream back from the caller until it ends — `TestGeminiStreamPassesThrough` and `TestEventStreamPassesThrough` guard this. langchaingo's Google streams are one JSON array sent as `application/json`, so the path check stays.
 
 SSE `data:` lines are read with or without the space after the colon, as the SSE format and the provider SDKs allow (`TestSSEDataWithoutSpace`).
 

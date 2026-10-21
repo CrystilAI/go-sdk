@@ -56,8 +56,7 @@ func TestIsStreamingRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			body, _ := json.Marshal(tt.reqBody)
-			result := isStreamingRequest(body)
+			result := isStreamingRequest(tt.reqBody)
 			if result != tt.expected {
 				t.Errorf("isStreamingRequest() = %v, want %v", result, tt.expected)
 			}
@@ -66,7 +65,8 @@ func TestIsStreamingRequest(t *testing.T) {
 }
 
 func TestIsStreamingRequestInvalidJSON(t *testing.T) {
-	result := isStreamingRequest([]byte("invalid json"))
+	transport := &tracingTransport{provider: ProviderOpenAI}
+	result := isStreamingRequest(transport.buildQuery("/v1/chat/completions", []byte("invalid json")))
 	if result {
 		t.Error("Expected isStreamingRequest to return false for invalid JSON")
 	}
@@ -88,7 +88,7 @@ func TestStreamingResponseBodyRead(t *testing.T) {
 		client,
 		ProviderOpenAI,
 		internal.ClientInfo{},
-		[]byte(`{"model":"gpt-4","stream":true}`),
+		map[string]interface{}{"model": "gpt-4", "stream": true},
 		time.Now(),
 		context.Background(),
 	)

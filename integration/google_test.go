@@ -105,7 +105,7 @@ func testGoogle(t *testing.T, keys []string, config func(*testing.T, *crystil.Cl
 			}
 
 			p := rec.payload(t)
-			checkPayload(t, p, string(crystil.ProviderGoogle), "")
+			checkPayload(t, p, string(crystil.ProviderGoogle), m)
 			if tc.stream {
 				checkEventList(t, p)
 			}

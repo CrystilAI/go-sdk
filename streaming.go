@@ -25,7 +25,7 @@ type streamingResponseBody struct {
 	client    *Client
 	provider  Provider
 	info      internal.ClientInfo
-	reqBody   []byte
+	query     map[string]interface{}
 	startTime time.Time
 	ctx       context.Context
 	sendOnce  sync.Once
@@ -38,7 +38,7 @@ func newStreamingResponseBody(
 	client *Client,
 	provider Provider,
 	info internal.ClientInfo,
-	reqBody []byte,
+	query map[string]interface{},
 	startTime time.Time,
 	ctx context.Context,
 ) *streamingResponseBody {
@@ -48,7 +48,7 @@ func newStreamingResponseBody(
 		client:    client,
 		provider:  provider,
 		info:      info,
-		reqBody:   reqBody,
+		query:     query,
 		startTime: startTime,
 		end:       time.Now(), // the headers arrived
 		ctx:       ctx,
@@ -168,13 +168,7 @@ func (s *streamingResponseBody) send() {
 	}
 	s.mu.Unlock()
 
-	// Parse request
-	var query map[string]interface{}
-	if len(s.reqBody) > 0 {
-		_ = json.Unmarshal(s.reqBody, &query)
-	}
-
-	s.client.collector.SendAsync(s.client.newPayload(s.ctx, s.info, query, response, exc, s.startTime, end))
+	s.client.collector.SendAsync(s.client.newPayload(s.ctx, s.info, s.query, response, exc, s.startTime, end))
 }
 
 // reconstructResponse parses the SSE chunks into the response to record, in the

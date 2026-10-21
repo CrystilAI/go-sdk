@@ -207,18 +207,15 @@ func (r *recorder) payload(t *testing.T) map[string]any {
 	return p
 }
 
-// checkPayload checks the fields every payload has. An empty model skips the
-// query check, for Gemini, whose request body names no model.
+// checkPayload checks the fields every payload has.
 func checkPayload(t *testing.T, p map[string]any, title, model string) {
 	t.Helper()
 	want := map[string]any{
 		"conversation.client.title": title,
+		"conversation.query.model":  model,
 		"meta.sdk.client":           "go",
 		"meta.fnfg.status":          "succeeded",
 		"attribution.parent.id":     "123",
-	}
-	if model != "" {
-		want["conversation.query.model"] = model
 	}
 	for path, value := range want {
 		if got := get(p, path); got != value {

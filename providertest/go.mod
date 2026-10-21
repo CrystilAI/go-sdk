@@ -3,6 +3,7 @@ module github.com/CrystilAI/go-sdk/providertest
 go 1.24
 
 require (
+	cloud.google.com/go/auth v0.9.3
 	github.com/CrystilAI/go-sdk v0.0.0-00010101000000-000000000000
 	github.com/anthropics/anthropic-sdk-go v1.13.0
 	github.com/openai/openai-go/v3 v3.2.0
@@ -15,7 +16,6 @@ require (
 	cloud.google.com/go v0.116.0 // indirect
 	cloud.google.com/go/ai v0.7.0 // indirect
 	cloud.google.com/go/aiplatform v1.68.0 // indirect
-	cloud.google.com/go/auth v0.9.3 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.4 // indirect
 	cloud.google.com/go/compute/metadata v0.5.0 // indirect
 	cloud.google.com/go/iam v1.2.0 // indirect

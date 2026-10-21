@@ -93,3 +93,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A request that ended after `Client.Close` panicked.
 - A payload with no attribution sends `attribution` as `null`, as the other SDKs do; the backend
   rejected one without the key.
+- In an OpenAI tool loop, the backend rejected each call after the first, whose assistant message
+  has no `content`; it is now recorded with `content: null`.
