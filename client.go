@@ -21,11 +21,14 @@ type Client struct {
 }
 
 // New creates a Crystil client. If no API key is provided via options,
-// it reads from CRYSTIL_API_KEY environment variable.
+// it reads from CRYSTIL_API_KEY environment variable. The collector and API
+// URLs come from WithCollectorURL and WithAPIURL, then from the
+// CRYSTIL_COLLECTOR_URL_BASE and CRYSTIL_API_URL_BASE environment variables,
+// then default to production.
 func New(opts ...Option) (*Client, error) {
 	cfg := &config{
-		collectorURL:      "https://collector.crystil.com",
-		apiURL:            "https://api.crystil.com",
+		collectorURL:      envOr("CRYSTIL_COLLECTOR_URL_BASE", "https://collector.crystil.com"),
+		apiURL:            envOr("CRYSTIL_API_URL_BASE", "https://api.crystil.com"),
 		timeout:           5 * time.Second,
 		raiseFinalAttempt: true,
 		version:           version,

@@ -24,7 +24,7 @@ You diff Crystil's Go SDK against its Python reference at `../python-sdk`. Your 
    - Sentinel surface (`crystil/_sentinel.py` ↔ — Go has nothing). This is a documented divergence; flag if user is asking about sentinel specifically, but don't list it on every audit.
    - Payload shape (`_format_payload` ↔ `transport.go:buildPayload` + `streaming.go:Close` + `langchain.go` handlers). All three Go paths must produce the same `internal.Payload` struct.
    - Network behavior (`Api`/`Collector` ↔ `api.Client` / `collector.go`) — auth header, retry policy, timeouts
-   - Env var names — should be identical (`CRYSTIL_API_KEY`, `CRYSTIL_TEST_MODE`)
+   - Env var names — should be identical (`CRYSTIL_API_KEY`, `CRYSTIL_COLLECTOR_URL_BASE`, `CRYSTIL_API_URL_BASE`, `CRYSTIL_TEST_MODE`)
    - Attribution validation rules (`Crystil.attribution` in `crystil/__init__.py` ↔ `attribution.go:validate`)
    - LangChain integration (`crystil/_clients.py` LangChain wrappers ↔ `langchain.go` callback handler) — note the Python wrappers descend to the inner provider client to record native-shape payloads, while Go's callback handler is response-only and reports `title: "langchain"`. That's a real shape gap; surface it.
 

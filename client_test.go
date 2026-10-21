@@ -70,6 +70,59 @@ func TestNew(t *testing.T) {
 	}
 }
 
+func TestNewURLs(t *testing.T) {
+	tests := []struct {
+		name          string
+		envCollector  string
+		envAPI        string
+		opts          []Option
+		wantCollector string
+		wantAPI       string
+	}{
+		{
+			name:          "defaults",
+			wantCollector: "https://collector.crystil.com",
+			wantAPI:       "https://api.crystil.com",
+		},
+		{
+			name:          "from environment variables",
+			envCollector:  "http://localhost:8002",
+			envAPI:        "http://localhost:8000",
+			wantCollector: "http://localhost:8002",
+			wantAPI:       "http://localhost:8000",
+		},
+		{
+			name:          "options win over environment variables",
+			envCollector:  "http://localhost:8002",
+			envAPI:        "http://localhost:8000",
+			opts:          []Option{WithCollectorURL("http://collector.test"), WithAPIURL("http://api.test")},
+			wantCollector: "http://collector.test",
+			wantAPI:       "http://api.test",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// An empty value counts as unset, as in the JS and Ruby SDKs.
+			t.Setenv("CRYSTIL_COLLECTOR_URL_BASE", tt.envCollector)
+			t.Setenv("CRYSTIL_API_URL_BASE", tt.envAPI)
+
+			client, err := New(append([]Option{WithAPIKey("test-key")}, tt.opts...)...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer client.Close()
+
+			if client.collector.endpoint != tt.wantCollector+"/rec" {
+				t.Errorf("collector endpoint = %q, want %q", client.collector.endpoint, tt.wantCollector+"/rec")
+			}
+			if client.cfg.apiURL != tt.wantAPI {
+				t.Errorf("API URL = %q, want %q", client.cfg.apiURL, tt.wantAPI)
+			}
+		})
+	}
+}
+
 func TestWithTimeout(t *testing.T) {
 	tests := []struct {
 		name    string

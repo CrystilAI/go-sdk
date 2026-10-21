@@ -121,7 +121,7 @@ The collector's HTTP client uses `retryTransport`, which tries again after a 5xx
 
 ## Python SDK is the source of truth
 
-`../python-sdk` is the reference implementation. When adding a feature, check `../python-sdk/crystil/` first — payload shapes match, names map Python `snake_case` ↔ Go `PascalCase` for exports / `camelCase` for fields, env vars match (`CRYSTIL_API_KEY`, `CRYSTIL_TEST_MODE`).
+`../python-sdk` is the reference implementation. When adding a feature, check `../python-sdk/crystil/` first — payload shapes match, names map Python `snake_case` ↔ Go `PascalCase` for exports / `camelCase` for fields, env vars match (`CRYSTIL_API_KEY`, `CRYSTIL_COLLECTOR_URL_BASE`, `CRYSTIL_API_URL_BASE`, `CRYSTIL_TEST_MODE`). `New` takes each URL from its option, then its environment variable, then the production default, as the Ruby SDK does; an empty variable counts as unset.
 
 Known intentional divergences:
 

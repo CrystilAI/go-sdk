@@ -2,6 +2,7 @@ package crystil
 
 import (
 	"errors"
+	"os"
 	"time"
 )
 
@@ -60,6 +61,14 @@ func WithAPIURL(url string) Option {
 		c.apiURL = url
 		return nil
 	}
+}
+
+// envOr returns the environment variable's value, or def when it is unset or empty.
+func envOr(name, def string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return def
 }
 
 // APIKey returns the API key.

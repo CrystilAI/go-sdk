@@ -44,7 +44,7 @@ pre-commit run --all-files
 
 ### Run an example
 
-The examples make real LLM calls, which cost money, and send telemetry to the production collector (`https://collector.crystil.com`). To send it somewhere else, pass `crystil.WithCollectorURL(url)` to `crystil.New` in the example. Every example reads `CRYSTIL_API_KEY`. Most also need their provider's key:
+The examples make real LLM calls, which cost money. They send telemetry to the collector at `CRYSTIL_COLLECTOR_URL_BASE`, or to production (`https://collector.crystil.com`) when it is unset. The `workflow` and `invocation` examples also call the API at `CRYSTIL_API_URL_BASE`, or `https://api.crystil.com`. Every example reads `CRYSTIL_API_KEY`, which must belong to the same environment. Most also need their provider's key:
 
 | Example | Provider key |
 |---|---|
