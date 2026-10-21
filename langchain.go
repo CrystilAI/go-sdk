@@ -84,7 +84,7 @@ func (h *langChainHandler) HandleLLMEnd(ctx context.Context, result map[string]a
 			Client: internal.ClientInfo{
 				Provider: "",
 				Title:    "langchain",
-				Version:  "",
+				Version:  langChainVersion(),
 			},
 			Query:    query,
 			Response: response,
@@ -179,7 +179,7 @@ func (h *langChainHandler) HandleLLMGenerateContentEnd(ctx context.Context, resp
 			Client: internal.ClientInfo{
 				Provider: "",
 				Title:    "langchain",
-				Version:  "",
+				Version:  langChainVersion(),
 			},
 			Query:    query,
 			Response: responseMap,
@@ -252,7 +252,7 @@ func (h *langChainHandler) HandleLLMError(ctx context.Context, err error) {
 			Client: internal.ClientInfo{
 				Provider: "",
 				Title:    "langchain",
-				Version:  "",
+				Version:  langChainVersion(),
 			},
 			Query:    make(map[string]interface{}),
 			Response: make(map[string]interface{}),

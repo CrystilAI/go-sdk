@@ -33,7 +33,7 @@ You diff Crystil's Go SDK against its Python reference at `../python-sdk`. Your 
    - Go has no sentinel / `raise_if_irrelevant`. Document gap if user is asking about sentinel.
    - Go has no `pydantic_ai`, Vercel AI SDK, or Groq support (those are Python- or JS-only).
    - Go's `conversation.client.provider` is always `""` (vs Python sometimes setting `"langchain"` here). Real gap, but acknowledged.
-   - Go's `conversation.client.version` is always `""` (vs Python reading the SDK's `__version__`). Real gap, but acknowledged — Go's transport-level interception doesn't have a handle on the provider SDK object.
+   - Go reads `conversation.client.version` from the build info (`version.go`), not the provider's client object, so it goes out as `null` in `go test` binaries unless the test sets `internal.BuildDeps`. LangChain payloads carry langchaingo's version, where Python sends the version of the SDK LangChain wraps. Real gap, but acknowledged.
    - Go's LangChain `query` is `{}` (for `HandleLLMEnd`) or `{messages: [{role: "user", content: ""}]}` (for `HandleLLMGenerateContentEnd`) because `langchaingo`'s callback API doesn't surface prompts to the End callback. Real gap, but acknowledged.
    - Go has no retry adapter on the user-facing transport (Python's `_ApiRetryRecoverable` is for control-plane calls; Go's `api.Client` has no retry either — that's a gap to flag if user is auditing the API layer).
    - Go's attribution caps at 100 chars, matching Python (JS caps at 255).

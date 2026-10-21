@@ -40,3 +40,19 @@ func TestTimeInfoSendsUnixSeconds(t *testing.T) {
 		}
 	}
 }
+
+// TestClientInfoSendsNullVersion checks that a payload whose provider SDK version
+// is unknown sends conversation.client.version as null, as the other SDKs do.
+func TestClientInfoSendsNullVersion(t *testing.T) {
+	data, err := json.Marshal(ClientInfo{Title: "openai"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if version, ok := got["version"]; !ok || version != nil {
+		t.Errorf("conversation.client = %s, want version null", data)
+	}
+}

@@ -11,7 +11,7 @@ You add or modify LLM provider support in the Crystil Go SDK. The Go SDK works v
 
 **Python and JS monkey-patch.** They mutate caller-supplied LLM client objects in place. Go does not. Go gives the caller a wrapped `*http.Client` (returned from `Client.HTTPClient(provider)`) whose `Transport` is `tracingTransport`. The caller passes that into their provider SDK's "give me an HTTP client" option (`option.WithHTTPClient` for openai-go and anthropic-sdk-go, `&genai.ClientConfig{HTTPClient: ...}`). Every HTTP round trip the provider SDK makes is then intercepted at the transport layer.
 
-This means adding a new provider almost never requires touching `client.go`, `transport.go`'s `RoundTrip`, or any imports of the provider's Go SDK in the library itself. The library only needs to know the provider exists if its streaming format differs from the existing three.
+This means adding a new provider almost never requires touching `client.go`, `transport.go`'s `RoundTrip`, or any imports of the provider's Go SDK in the library itself. The library needs a `Provider` constant and version detection for each provider, and a stream-shape decision only when its streams aren't already handled.
 
 ## Rules of engagement
 
@@ -19,6 +19,7 @@ This means adding a new provider almost never requires touching `client.go`, `tr
 
 2. **Adding a new provider is, in order:**
    - Add a `Provider` constant in `provider.go` (`const ProviderXxx Provider = "xxx"`). The string value becomes `conversation.client.title` in the payload, so it must match Python.
+   - Add the provider SDK's module path, without its major version suffix, to `providerModules` in `version.go`, and the request header that names the SDK's version to `headerNames`, so payloads report it in `conversation.client.version`. Without the header check its payloads report no version.
    - If the provider supports streaming **and its SSE event shape isn't already handled**, choose its recorded shape in `reconstructResponse` (`streaming.go`). It must be the shape the Python SDK records for that provider's streams, which is what the backend reads, not the provider's unstreamed shape. If its SDK stops reading at an error event and raises it, teach `errorEvent` that event, so the stream is recorded as failed. Delegate to the `streaming-reconstructor` agent for the shape work.
    - Add an example under `examples/<provider>/main.go`, in the `examples/` module, showing the wiring (`crystilClient.HTTPClient(crystil.ProviderXxx)` → provider SDK constructor).
    - Add a test in `providertest/` that builds the provider's SDK client on `newCollector(t)`'s HTTP client and calls a `httptest.Server` returning a canned response of that provider's shape. Delegate to `sdk-test-author` if needed.

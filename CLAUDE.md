@@ -39,7 +39,7 @@ This is the single most important thing to understand. **Python and JS monkey-pa
 3. The caller passes the wrapped `*http.Client` to their provider SDK constructor (`openai.NewClient(option.WithHTTPClient(httpClient))`, `anthropic.NewClient(option.WithHTTPClient(httpClient))`, `genai.NewClient(ctx, &genai.ClientConfig{HTTPClient: httpClient, ...})`).
 4. Every HTTP request the provider SDK makes flows through `tracingTransport.RoundTrip`, which (a) reads and replays the request body, (b) detects streaming via `"stream": true` in the JSON body, (c) for non-streaming, reads and replays the response body and fires telemetry, (d) for streaming, replaces `resp.Body` with `streamingResponseBody` so chunks are buffered as the caller reads them and telemetry fires once, when the stream reaches its end or fails, or the caller closes it.
 
-The consequence: **the SDK never needs to know the provider's Go method signatures.** Adding a new HTTP-based provider is just (1) adding a `Provider` constant in `provider.go`, (2) choosing the shape its streams are recorded in, in `streaming.go:reconstructResponse`, and (3) writing an example. The provider's Go SDK is never a dependency of the SDK module; only `examples/` and `providertest/` use it.
+The consequence: **the SDK never needs to know the provider's Go method signatures.** Adding a new HTTP-based provider is just (1) adding a `Provider` constant in `provider.go` and its module path in `version.go`, (2) choosing the shape its streams are recorded in, in `streaming.go:reconstructResponse`, and (3) writing an example. The provider's Go SDK is never a dependency of the SDK module; only `examples/` and `providertest/` use it.
 
 The cost: anything that doesn't go over HTTP from the provider SDK to the network — sub-stream callbacks, in-process LangChain runnables, mocked clients in user code — won't be captured by the transport. That's why LangChain has a separate callback-handler path (see below).
 
@@ -110,15 +110,17 @@ Consequences:
 
 ```go
 type ClientInfo struct {
-    Provider string `json:"provider,omitempty"`  // currently always ""
-    Title    string `json:"title"`               // string(provider) for direct, "langchain" for callbacks
-    Version  string `json:"version,omitempty"`   // currently always ""
+    Provider string // currently always ""
+    Title    string // string(provider) for direct, "langchain" for callbacks
+    Version  string // the provider SDK's or langchaingo's version, from the build info
 }
 ```
 
-Two intentional emptiness traps to be aware of:
+`MarshalJSON` sends them as `provider`, `title` and `version`. An empty `Version` goes out as `null`, as the other SDKs send it (`TestClientInfoSendsNullVersion`); an empty `Provider` is left out.
+
+Fields to be aware of:
 - `Provider` is always `""` today. There's no framework distinction yet (Python/JS use `"langchain"` / `"ai_sdk"` here). If you add a framework wrapper that should be reported under `provider`, change the wiring in `transport.go:buildPayload` and `langchain.go` — don't pun on `Title`.
-- `Version` is always `""`. Go's HTTP-level interception means we don't have a reference to the provider SDK object the way Python/JS do, so we can't read its version. If we need to report it, the caller has to surface it through a new option on `HTTPClient(...)` or via a separate config field; don't try to sniff it from `User-Agent` headers on the request (provider SDKs change those frequently and `User-Agent` can carry multiple tokens).
+- `Version` is the provider SDK's version, such as `3.2.0`. Python reads it from the provider's client object, which Go never sees, so `providerVersion` (`version.go`) reads it from the program's build info (`runtime/debug.ReadBuildInfo`), using each provider's module path in `providerModules`. `sdkVersion` sends it only when the official SDK sent the request: each names its version in a header (`X-Stainless-Package-Version` for openai-go and anthropic-sdk-go, `google-genai-sdk/<version>` in `x-goog-api-client` for genai), and that version must match. So a request another library sends through `HTTPClient`, such as `sashabaranov/go-openai`, reports none, even with the official SDK built in. LangChain payloads report langchaingo's version (`langChainVersion`), since langchaingo calls OpenAI and Anthropic with its own clients, not their SDKs; Python reports the SDK under LangChain instead, with titles such as `chatopenai`. It is empty when the build info can't tell (the SDK replaced by a local copy, or built in at two major versions), and in `go test` binaries, where Go records no dependency versions. A test that needs them sets `internal.BuildDeps`: `TestPayloadNamesProviderVersion` gives its own list, and the integration tests' `TestMain` gives the modules `go list -deps` builds into their binary, the versions a production build would record. The header only confirms the sender; don't take the version from `User-Agent` instead: provider SDKs change those often, and they can carry several tokens.
 
 The Crystil SDK's own language/version lives in `meta.sdk` (`{client: "go", version: <const version>}`).
 
@@ -147,7 +149,7 @@ Known intentional divergences:
 - **Attribution caps at 100 chars** (matching Python). JS caps at 255. The validator is in `attribution.go:validate`.
 - **The usage chunk Crystil asks for is hidden from the caller.** Python and JS also set `stream_options.include_usage`, and pass the extra chunk on. They wrap only the official clients; Go's transport reaches every library on the HTTP client, including ones whose stream loops read `Choices[0]` without checking, so `usageChunkFilter` hides the chunk when the caller did not ask for it.
 - **No Vercel AI SDK / Groq / AISDK integrations.** Those are JS-only. Python has `pydantic_ai`; Go doesn't.
-- **No `conversation.client.version` reporting.** See "shape" section above — the transport doesn't have a handle on the provider SDK object.
+- **`conversation.client.version` comes from the build info**, not the provider's client object, so it is empty in `go test` binaries unless the test sets `internal.BuildDeps`. LangChain payloads carry langchaingo's version, where Python sends the version of the SDK LangChain wraps. See the "shape" section above.
 - **`conversation.client.provider` is always `""`**, including for the LangChain callback path (which sets `title: "langchain"`). Python/JS distinguish framework-vs-provider here; Go currently doesn't.
 - **Two separate code paths for telemetry capture (transport + callback handler) instead of one.** Python/JS have one `Invoke*`-driven path because they monkey-patch and can intercept anywhere; Go needs the callback handler because `langchaingo` doesn't expose its HTTP client. Keep the two paths' payload shapes aligned via `internal.Payload` — they currently emit the same struct.
 - **Test mode skips the POST entirely (no console log).** Python/JS log the payload to stdout in test mode so tests can spy on it; Go just returns `nil` from `collector.send`. For payload-shape assertions in the root package, build the client with `newQueueClient()` (`transport_test.go`), whose collector has no worker, and read the payload from `client.collector.queue` — see `TestStreamedEventLists`; in `providertest/`, read what its fake collector received. Don't bolt on a stdout-log mode just to mimic Python/JS.
@@ -158,7 +160,7 @@ Known intentional divergences:
 - **Don't make real HTTP calls in unit tests.** With `CRYSTIL_TEST_MODE` set, the collector won't POST. For tests that need to exercise `tracingTransport.RoundTrip`, build an `http.Client` whose base transport is a `httptest.Server` (preferred) or a stub `RoundTripper` that returns canned responses. The existing tests largely test components in isolation — `includeStreamUsage`, for one, is called directly, not through HTTP. That pattern is fine when the unit under test doesn't depend on the network path; use `httptest` when it does.
 - **Streaming tests construct `streamingResponseBody` directly with `io.NopCloser(strings.NewReader(...))`** as the reader. See `TestStreamingResponseBodyRead`. Reading to the end fires `SendAsync`, which `CRYSTIL_TEST_MODE` makes a no-op; the assertion is on observable state (buffer contents) not on what got sent.
 - **Race detector.** The collector mutates `c.attribution` via `SetAttribution` while `tracingTransport.buildPayload` reads it. Currently neither side locks — there's an implicit happens-before via the user-code ordering, but a multi-goroutine test would race. If you add concurrency, also add the necessary `sync.RWMutex` and prove it under `go test -race`.
-- **Tests that use a provider SDK go in `providertest/`.** The root package's tests may not import openai-go, anthropic-sdk-go or genai, or those modules land in the SDK's `go.mod`. A `providertest/` test builds the real SDK client on the HTTP client of `newCollector(t)`, points it at an `httptest.Server`, and checks the payloads its fake collector received, as JSON: it is outside the SDK package, so `newQueueClient` and other internals are out of reach. See `TestStreamedOpenAIChat`.
+- **Tests that use a provider SDK go in `providertest/`.** The root package's tests may not import openai-go, anthropic-sdk-go or genai, or those modules land in the SDK's `go.mod`. A `providertest/` test builds the real SDK client on the HTTP client of `newCollector(t)`, points it at an `httptest.Server`, and checks the payloads its fake collector received, as JSON: it is outside the SDK package, so `newQueueClient` and other internals are out of reach, though `internal.BuildDeps` is not. See `TestStreamedOpenAIChat`.
 - **Examples are not tests.** `examples/*/main.go` are `package main` programs in the `examples/` module, with no test files. `scripts/in-each-module.sh go build ./...` builds them, as CI does, to catch an example broken by a library change.
 
 ## Specialized subagents

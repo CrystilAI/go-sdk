@@ -23,6 +23,7 @@ type streamingResponseBody struct {
 	checked   int    // how much of buffer findErrorEvent has looked at
 	client    *Client
 	provider  Provider
+	version   string
 	reqBody   []byte
 	startTime time.Time
 	ctx       context.Context
@@ -34,6 +35,7 @@ func newStreamingResponseBody(
 	reader io.ReadCloser,
 	client *Client,
 	provider Provider,
+	version string,
 	reqBody []byte,
 	startTime time.Time,
 	ctx context.Context,
@@ -43,6 +45,7 @@ func newStreamingResponseBody(
 		buffer:    &bytes.Buffer{},
 		client:    client,
 		provider:  provider,
+		version:   version,
 		reqBody:   reqBody,
 		startTime: startTime,
 		ctx:       ctx,
@@ -193,7 +196,7 @@ func (s *streamingResponseBody) send() {
 			Client: internal.ClientInfo{
 				Provider: "",
 				Title:    string(s.provider),
-				Version:  "",
+				Version:  s.version,
 			},
 			Query:    query,
 			Response: response,

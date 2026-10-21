@@ -23,9 +23,26 @@ type Conversation struct {
 
 // ClientInfo describes the LLM provider client.
 type ClientInfo struct {
-	Provider string `json:"provider,omitempty"`
-	Title    string `json:"title"`
-	Version  string `json:"version,omitempty"`
+	Provider string
+	Title    string
+	Version  string
+}
+
+// MarshalJSON sends an empty Version as null, as the other SDKs do.
+func (c ClientInfo) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Provider string  `json:"provider,omitempty"`
+		Title    string  `json:"title"`
+		Version  *string `json:"version"`
+	}{c.Provider, c.Title, nullIfEmpty(c.Version)})
+}
+
+// nullIfEmpty returns nil for "", which JSON sends as null.
+func nullIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 // Meta contains metadata about the request.

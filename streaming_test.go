@@ -87,6 +87,7 @@ func TestStreamingResponseBodyRead(t *testing.T) {
 		reader,
 		client,
 		ProviderOpenAI,
+		"",
 		[]byte(`{"model":"gpt-4","stream":true}`),
 		time.Now(),
 		context.Background(),
@@ -276,7 +277,7 @@ func TestSSEDataWithoutSpace(t *testing.T) {
 	for _, tt := range tests {
 		client := newQueueClient()
 		s := newStreamingResponseBody(io.NopCloser(strings.NewReader(tt.stream)), client, tt.provider,
-			nil, time.Now(), context.Background())
+			"", nil, time.Now(), context.Background())
 		_, _ = io.ReadAll(s)
 		select {
 		case payload := <-client.collector.queue:
@@ -297,7 +298,7 @@ func TestStreamSentAfterContextEnds(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		client := newQueueClient()
 		s := newStreamingResponseBody(io.NopCloser(strings.NewReader("data: {}\n\n")), client, ProviderOpenAI,
-			nil, time.Now(), ctx)
+			"", nil, time.Now(), ctx)
 		if _, err := s.Read(make([]byte, 64)); err != nil {
 			t.Fatal(err)
 		}
@@ -338,7 +339,7 @@ func TestEmptyStreamNotRecorded(t *testing.T) {
 	for _, provider := range []Provider{ProviderOpenAI, ProviderAnthropic, ProviderGoogle} {
 		client := newQueueClient()
 		s := newStreamingResponseBody(io.NopCloser(strings.NewReader(": keep-alive\n\n")), client, provider,
-			nil, time.Now(), context.Background())
+			"", nil, time.Now(), context.Background())
 		_, _ = io.ReadAll(s)
 		_ = s.Close()
 		if got := len(client.collector.queue); got != 0 {
@@ -378,7 +379,7 @@ func TestFailedStreamRecorded(t *testing.T) {
 				go func() { _, _ = io.WriteString(writer, tt.stream) }()
 				body = reader
 			}
-			s := newStreamingResponseBody(body, client, tt.provider, nil, time.Now(), context.Background())
+			s := newStreamingResponseBody(body, client, tt.provider, "", nil, time.Now(), context.Background())
 			if tt.drop {
 				_, _ = io.ReadAll(s)
 			} else if _, err := io.ReadFull(s, make([]byte, len(tt.stream))); err != nil {
@@ -410,7 +411,7 @@ func TestErrorOnlyStreamNotRecorded(t *testing.T) {
 	for provider, stream := range streams {
 		client := newQueueClient()
 		s := newStreamingResponseBody(io.NopCloser(strings.NewReader(stream)), client, provider,
-			nil, time.Now(), context.Background())
+			"", nil, time.Now(), context.Background())
 		_, _ = io.ReadAll(s)
 		_ = s.Close()
 		if got := len(client.collector.queue); got != 0 {
@@ -428,7 +429,7 @@ func TestCanceledStreamNotFailed(t *testing.T) {
 		strings.NewReader("data: {\"id\":\"c1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hi\"}}]}\n\n"),
 		cancelThenFail{cancel},
 	))
-	s := newStreamingResponseBody(body, client, ProviderOpenAI, nil, time.Now(), ctx)
+	s := newStreamingResponseBody(body, client, ProviderOpenAI, "", nil, time.Now(), ctx)
 	_, _ = io.ReadAll(s)
 	_ = s.Close()
 
@@ -461,7 +462,7 @@ func TestStreamClosedWhileRead(t *testing.T) {
 			}
 		}
 	}()
-	s := newStreamingResponseBody(reader, newQueueClient(), ProviderOpenAI, nil, time.Now(),
+	s := newStreamingResponseBody(reader, newQueueClient(), ProviderOpenAI, "", nil, time.Now(),
 		context.Background())
 	done := make(chan struct{})
 	go func() {

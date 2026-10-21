@@ -46,6 +46,8 @@ func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	// Check if this is a streaming request. Gemini marks a stream in the URL, not the body.
 	isStreaming := isStreamingRequest(reqBody) || strings.HasSuffix(req.URL.Path, ":streamGenerateContent")
 
+	version := sdkVersion(t.provider, req.Header)
+
 	// Execute request
 	resp, err := t.base.RoundTrip(req)
 	if err != nil {
@@ -65,6 +67,7 @@ func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			resp.Body,
 			t.client,
 			t.provider,
+			version,
 			reqBody,
 			start,
 			req.Context(),
@@ -84,7 +87,7 @@ func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
 		// Build and send analytics payload async
-		payload := t.buildPayload(reqBody, respBody, start, time.Now())
+		payload := t.buildPayload(reqBody, respBody, version, start, time.Now())
 		t.client.collector.SendAsync(payload)
 	}
 
@@ -92,7 +95,7 @@ func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 }
 
 // buildPayload constructs the analytics payload.
-func (t *tracingTransport) buildPayload(reqBody, respBody []byte, start, end time.Time) internal.Payload {
+func (t *tracingTransport) buildPayload(reqBody, respBody []byte, version string, start, end time.Time) internal.Payload {
 	var query map[string]interface{}
 	var response map[string]interface{}
 
@@ -135,7 +138,7 @@ func (t *tracingTransport) buildPayload(reqBody, respBody []byte, start, end tim
 			Client: internal.ClientInfo{
 				Provider: "",
 				Title:    string(t.provider),
-				Version:  "",
+				Version:  version,
 			},
 			Query:    query,
 			Response: response,
