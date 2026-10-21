@@ -64,9 +64,9 @@ For LangChain calls through the transport, drive a real langchaingo LLM built wi
 
 ### Race-sensitive tests
 
-`SetAttribution` writes `c.attribution`; `tracingTransport.buildPayload` reads it. **No lock guards this today.** If you write a test that hits both paths concurrently, you'll trip `-race` — and that's a real bug surfaced by the test, not a test-mode artifact. Decide whether to: (a) add a `sync.RWMutex` around `attribution` access (preferred — it's the right fix), or (b) sequence the test so writes happen-before reads.
+Nothing changes a `Client` after `New`: a call's transaction and attribution travel in its context, so tests that share a `Client` can run in parallel. If a change adds state that is written after `New`, guard it, and prove it with a test that writes and reads it from several goroutines under `-race`.
 
-The collector itself is single-worker, channel-fed; the worker goroutine and the test goroutine share `c.queue` and `c.done`. As long as you `defer client.Close()`, the worker drains and exits cleanly. Don't `t.Parallel()` tests that share a `Client` until the attribution race is fixed.
+The collector itself is single-worker, channel-fed; the worker goroutine and the test goroutine share `c.queue` and `c.done`. As long as you `defer client.Close()`, the worker drains and exits cleanly.
 
 ### Cleanup
 
@@ -80,7 +80,7 @@ defer client.Close()
 
 ### Mock provider SDKs (when end-to-end is needed)
 
-Don't mock by writing a fake `openai` package — the tests in `providertest/` import the real one (`github.com/openai/openai-go/v3`) but configure it to call a `httptest.Server`. That gives real serialization, real request construction, real response parsing. See `TestHTTPClientMutableAttribution` for the pattern.
+Don't mock by writing a fake `openai` package — the tests in `providertest/` import the real one (`github.com/openai/openai-go/v3`) but configure it to call a `httptest.Server`. That gives real serialization, real request construction, real response parsing. See `TestContextTransactionAndAttribution` for the pattern.
 
 ### Sub-package tests (`api/`)
 

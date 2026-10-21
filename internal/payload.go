@@ -7,7 +7,7 @@ import (
 
 // Payload represents analytics data sent to Crystil.
 type Payload struct {
-	Attribution  interface{}  `json:"attribution,omitempty"`
+	Attribution  interface{}  `json:"attribution"` // null when unset: the backend rejects a payload without it
 	Conversation Conversation `json:"conversation"`
 	Meta         Meta         `json:"meta"`
 	Time         TimeInfo     `json:"time"`

@@ -62,6 +62,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - **BREAKING**: `Client.NewLangChainHandler`. Pass `crystilClient.HTTPClient(provider)` to
   langchaingo's `WithHTTPClient` instead.
+- **BREAKING**: `Client.SetAttribution` and `Client.NewTransaction`. Call
+  `ctx, err = crystil.SetAttribution(ctx, attr)` or `ctx = crystil.NewTransaction(ctx)`, and pass
+  `ctx` to the provider call.
+- **BREAKING**: `ErrInvalidClient` and `ErrAlreadyRegistered`. Nothing returned them, so a check
+  against either was always false; delete it.
 
 ### Added
 - `Client.NewHTTPClient` and `Client.WrapTransport`, for a library that needs its own HTTP client,
@@ -73,6 +78,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A response with status 400 or more, and a stream with no chunks, are no longer recorded.
 - A stream that fails after its first chunk is recorded as failed, with the reason, as soon as it
   fails.
+- `SetAttribution` rejects a `SubsidiaryName` without a `SubsidiaryID`, and counts its
+  100-character caps in characters, not bytes. Its errors match `ErrInvalidAttribution` with
+  `errors.Is`.
 
 ### Fixed
 - Streams are recorded when read to their end, not only when closed, in the shapes the backend
@@ -83,3 +91,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A stream that is neither read to its end nor closed, as langchaingo's `googleai` leaves some, is
   recorded when its request's context ends.
 - A request that ended after `Client.Close` panicked.
+- A payload with no attribution sends `attribution` as `null`, as the other SDKs do; the backend
+  rejected one without the key.

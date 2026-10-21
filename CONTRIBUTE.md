@@ -48,7 +48,7 @@ The examples make real LLM calls, which cost money. They send telemetry to the c
 
 | Example | Provider key |
 |---|---|
-| `openai`, `streaming`, `langchain`, `invocation` | `OPENAI_API_KEY` |
+| `openai`, `streaming`, `transactions`, `langchain`, `invocation` | `OPENAI_API_KEY` |
 | `anthropic` | `ANTHROPIC_API_KEY` |
 | `google`, `langchain-google` | `GOOGLE_API_KEY` |
 | `workflow` | none |

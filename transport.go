@@ -2,6 +2,7 @@ package crystil
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -95,7 +96,7 @@ func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
 		// Build and send analytics payload async
-		payload := t.buildPayload(reqBody, respBody, info, start, time.Now())
+		payload := t.buildPayload(req.Context(), reqBody, respBody, info, start, time.Now())
 		t.client.collector.SendAsync(payload)
 	}
 
@@ -112,8 +113,8 @@ func (t *tracingTransport) clientInfo(header http.Header) internal.ClientInfo {
 	return internal.ClientInfo{Title: string(t.provider), Version: sdkVersion(t.provider, header)}
 }
 
-// buildPayload constructs the analytics payload.
-func (t *tracingTransport) buildPayload(reqBody, respBody []byte, info internal.ClientInfo, start, end time.Time) internal.Payload {
+// buildPayload constructs the analytics payload for a call that was not streamed.
+func (t *tracingTransport) buildPayload(ctx context.Context, reqBody, respBody []byte, info internal.ClientInfo, start, end time.Time) internal.Payload {
 	var query map[string]interface{}
 	var response map[string]interface{}
 
@@ -125,33 +126,19 @@ func (t *tracingTransport) buildPayload(reqBody, respBody []byte, info internal.
 		_ = json.Unmarshal(respBody, &response)
 	}
 
-	// Build attribution for payload (read from client dynamically)
-	var attr interface{}
-	if t.client.attribution != nil {
-		parentMap := map[string]interface{}{
-			"id": t.client.attribution.ParentID,
-		}
-		if t.client.attribution.ParentName != nil {
-			parentMap["name"] = *t.client.attribution.ParentName
-		}
+	return t.client.newPayload(ctx, info, query, response, nil, start, end)
+}
 
-		attr = map[string]interface{}{
-			"parent": parentMap,
-		}
-
-		if t.client.attribution.SubsidiaryID != nil {
-			subsidiaryMap := map[string]interface{}{
-				"id": *t.client.attribution.SubsidiaryID,
-			}
-			if t.client.attribution.SubsidiaryName != nil {
-				subsidiaryMap["name"] = *t.client.attribution.SubsidiaryName
-			}
-			attr.(map[string]interface{})["subsidiary"] = subsidiaryMap
-		}
+// newPayload builds the payload for a call, streamed or not, with the
+// attribution ctx carries, and its transaction or else the client's. A call
+// with exc set failed, and exc says why.
+func (c *Client) newPayload(ctx context.Context, info internal.ClientInfo, query map[string]interface{}, response interface{}, exc *string, start, end time.Time) internal.Payload {
+	status := "succeeded"
+	if exc != nil {
+		status = "failed"
 	}
-
 	return internal.Payload{
-		Attribution: attr,
+		Attribution: attributionPayload(ctx),
 		Conversation: internal.Conversation{
 			Client:   info,
 			Query:    query,
@@ -159,15 +146,15 @@ func (t *tracingTransport) buildPayload(reqBody, respBody []byte, info internal.
 		},
 		Meta: internal.Meta{
 			API: internal.APIInfo{
-				Key: t.client.cfg.apiKey,
+				Key: c.cfg.apiKey,
 			},
 			FNFG: internal.FNFGInfo{
-				Exc:    nil,
-				Status: "succeeded",
+				Exc:    exc,
+				Status: status,
 			},
 			SDK: internal.SDKInfo{
 				Client:  "go",
-				Version: t.client.cfg.version,
+				Version: c.cfg.version,
 			},
 		},
 		Time: internal.TimeInfo{
@@ -175,7 +162,7 @@ func (t *tracingTransport) buildPayload(reqBody, respBody []byte, info internal.
 			End:   end,
 		},
 		Tx: internal.Transaction{
-			UUID: t.client.txID,
+			UUID: c.transaction(ctx),
 		},
 	}
 }

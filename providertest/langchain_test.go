@@ -124,18 +124,7 @@ func TestLangChainRequestsAreLabeled(t *testing.T) {
 // made inside a langchaingo callback, such as a StreamingFunc, is not recorded as
 // LangChain's: the backend would read it as a call to LangChain's provider.
 func TestLangChainCallbackCallKeepsItsProvider(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/v1/messages" {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = io.WriteString(w, `{"id":"msg_1","type":"message","role":"assistant","model":"claude-haiku-4-5",`+
-				`"content":[{"type":"text","text":"hi"}],"stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":1}}`)
-			return
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, "data: {\"id\":\"c1\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-4o-mini\","+
-			"\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hi\"}}]}\n\ndata: [DONE]\n\n")
-	}))
-	defer server.Close()
+	server := newProviderServer(t)
 	c := newCollector(t)
 	ai := anthropic.NewClient(anthropicoption.WithHTTPClient(c.client.HTTPClient(crystil.ProviderAnthropic)),
 		anthropicoption.WithBaseURL(server.URL), anthropicoption.WithAPIKey("test-key"))

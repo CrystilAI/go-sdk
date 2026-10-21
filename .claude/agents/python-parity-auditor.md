@@ -22,7 +22,7 @@ You diff Crystil's Go SDK against its Python reference at `../python-sdk`. Your 
    - Provider integrations (`crystil/_clients.py` ↔ `provider.go` + `transport.go` + `streaming.go`). Note the architectural difference: Python monkey-patches per-provider client methods; Go intercepts at `http.RoundTripper`. The right comparison is "does the **payload** produced by a wrapped Go call match the payload Python produces for the same provider," not "do the wrapping mechanisms match" (they're meant to differ).
    - Streaming (`crystil/_streaming.py`, `_iterator.py`, `_iterable.py`, and `_base.py`'s `fire_stream_payload` ↔ `streaming.go`). Compare the final reconstructed shape per provider, not the chunk-merge algorithm (the algorithms can differ as long as the output matches).
    - Sentinel surface (`crystil/_sentinel.py` ↔ — Go has nothing). This is a documented divergence; flag if user is asking about sentinel specifically, but don't list it on every audit.
-   - Payload shape (`_format_payload` ↔ `transport.go:buildPayload` + `streaming.go:send`). Both Go paths must produce the same `internal.Payload` struct.
+   - Payload shape (`_format_payload` ↔ `transport.go:newPayload`, which builds the payload for streamed and unstreamed calls alike).
    - Network behavior (`Api`/`Collector` ↔ `api.Client` / `collector.go`) — auth header, retry policy, timeouts
    - Env var names — should be identical (`CRYSTIL_API_KEY`, `CRYSTIL_COLLECTOR_URL_BASE`, `CRYSTIL_API_URL_BASE`, `CRYSTIL_TEST_MODE`)
    - Attribution validation rules (`Crystil.attribution` in `crystil/__init__.py` ↔ `attribution.go:validate`)
@@ -34,9 +34,11 @@ You diff Crystil's Go SDK against its Python reference at `../python-sdk`. Your 
    - Go has no `pydantic_ai`, Vercel AI SDK, or Groq support (those are Python- or JS-only).
    - Go reads `conversation.client.version` from the build info (`version.go`), not the provider's client object, so it goes out as `null` in `go test` binaries unless the test sets `internal.BuildDeps`. LangChain payloads carry langchaingo's version, where Python sends the version of the SDK LangChain wraps. Real gap, but acknowledged.
    - Go has no retry adapter on the user-facing transport (Python's `_ApiRetryRecoverable` is for control-plane calls; Go's `api.Client` has no retry either — that's a gap to flag if user is auditing the API layer).
-   - Go's attribution caps at 100 chars, matching Python (JS caps at 255).
+   - Go's attribution caps at 100 characters, counted as Python counts them (JS caps at 255).
    - Go hides the OpenAI usage chunk it asks for from a caller that did not ask for it (`usageChunkFilter`); Python passes it on. Same payload.
    - Go records no failed call (a status of 400 or more, an unstreamed body that fails partway, a stream with no chunks), as Python records none; JS and Ruby send one marked failed. A stream that fails after its first chunk is recorded marked failed, with `exc`, as Python records it. Matching Python, so not a gap.
+   - Go carries the transaction and attribution in the request's `context.Context` (`crystil.NewTransaction(ctx)`, `crystil.SetAttribution(ctx, attr)`); Python sets them on the client. Same payload fields.
+   - Go finds LangChain calls on the call stack (`langChainTitle`); Python wraps LangChain's client objects. Same payload.
    - Test mode behavior differs: Python prints the payload to stdout; Go's `collector.send` returns `nil` without logging. Tests assert through different observable state. Surface only if user is comparing test mode specifically.
 
 5. **Payload-shape diffing strategy.** When you need to verify Go produces the same JSON Python does, the most reliable check is to walk `internal/payload.go`'s struct tags against `crystil/_base.py`'s `_format_payload` dict keys. Build a side-by-side mapping; mismatches are gaps. Example invariants: `tx.uuid` (both), `meta.sdk.client` (Python `"python"`, Go `"go"` — different value, same key, **not a gap**), `meta.api.key` (both), `time.start` / `time.end` (Unix seconds as JSON numbers in every SDK; the backend reads them with `fromtimestamp`, which raises on anything else, so a mismatched type or shape quarantines the whole payload).

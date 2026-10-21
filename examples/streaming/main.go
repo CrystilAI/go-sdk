@@ -22,17 +22,18 @@ func main() {
 	}
 	defer crystilClient.Close()
 
-	// Set attribution to track costs by user
+	ctx := context.Background()
+
+	// Set attribution to track costs by user. It rides in ctx, so it applies to
+	// the calls made with ctx
 	streamingUser := "Streaming User"
-	err = crystilClient.SetAttribution(&crystil.Attribution{
+	ctx, err = crystil.SetAttribution(ctx, &crystil.Attribution{
 		ParentID:   "user-streaming",
 		ParentName: &streamingUser,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	ctx := context.Background()
 
 	// Example 1: OpenAI Streaming
 	fmt.Println("=== OpenAI Streaming ===")

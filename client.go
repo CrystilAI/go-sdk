@@ -11,12 +11,13 @@ import (
 
 const version = "0.2.1"
 
-// Client tracks LLM costs across providers.
+// Client tracks LLM costs across providers. Calls whose context has no
+// transaction from NewTransaction are recorded under the client's own, which
+// New starts.
 type Client struct {
-	cfg         *config
-	collector   *collector
-	txID        string
-	attribution *Attribution
+	cfg       *config
+	collector *collector
+	txID      string
 }
 
 // New creates a Crystil client. If no API key is provided via options,
@@ -52,26 +53,6 @@ func New(opts ...Option) (*Client, error) {
 		collector: newCollector(cfg),
 		txID:      uuid.New().String(),
 	}, nil
-}
-
-// NewTransaction returns a client with a fresh transaction ID.
-// The original client is unmodified (value semantics).
-func (c *Client) NewTransaction() *Client {
-	cp := *c
-	cp.txID = uuid.New().String()
-	return &cp
-}
-
-// SetAttribution sets attribution on the client, affecting all future requests.
-// This method mutates the client in place.
-func (c *Client) SetAttribution(attr *Attribution) error {
-	if attr != nil {
-		if err := attr.validate(); err != nil {
-			return err
-		}
-	}
-	c.attribution = attr
-	return nil
 }
 
 // HTTPClient returns an HTTP client configured to track analytics for the specified provider.

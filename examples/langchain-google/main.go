@@ -21,17 +21,18 @@ func main() {
 	}
 	defer crystilClient.Close()
 
-	// Set attribution to track costs by user (affects all future requests)
+	ctx := context.Background()
+
+	// Set attribution to track costs by user. It rides in ctx, so it applies to
+	// the calls made with ctx
 	langchainUser := "LangChain User"
-	err = crystilClient.SetAttribution(&crystil.Attribution{
+	ctx, err = crystil.SetAttribution(ctx, &crystil.Attribution{
 		ParentID:   "user-langchain",
 		ParentName: &langchainUser,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	ctx := context.Background()
 
 	// Google's library adds no API key to an HTTP client you give it, so build
 	// Google's client, which puts the key on each request

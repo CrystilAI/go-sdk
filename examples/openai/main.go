@@ -27,9 +27,12 @@ func main() {
 		option.WithHTTPClient(httpClient),
 	)
 
-	// Set attribution to track costs by user (affects all future requests)
+	ctx := context.Background()
+
+	// Set attribution to track costs by user. It rides in ctx, so it applies to
+	// the calls made with ctx
 	johnDoe := "John Doe"
-	err = crystilClient.SetAttribution(&crystil.Attribution{
+	ctx, err = crystil.SetAttribution(ctx, &crystil.Attribution{
 		ParentID:   "user-123",
 		ParentName: &johnDoe,
 	})
@@ -39,7 +42,7 @@ func main() {
 
 	// Use OpenAI as normal - analytics tracked automatically
 	resp, err := openaiClient.Chat.Completions.New(
-		context.Background(),
+		ctx,
 		openai.ChatCompletionNewParams{
 			Model: openai.ChatModelGPT4o,
 			Messages: []openai.ChatCompletionMessageParamUnion{
@@ -53,9 +56,9 @@ func main() {
 
 	fmt.Printf("Response: %s\n", resp.Choices[0].Message.Content)
 
-	// Update attribution for a different user (affects same openaiClient)
+	// Attribute the next request to a different user, through the same openaiClient
 	janeSmith := "Jane Smith"
-	err = crystilClient.SetAttribution(&crystil.Attribution{
+	ctx, err = crystil.SetAttribution(ctx, &crystil.Attribution{
 		ParentID:   "user-456",
 		ParentName: &janeSmith,
 	})
@@ -65,7 +68,7 @@ func main() {
 
 	// This request will be attributed to Jane Smith
 	resp2, err := openaiClient.Chat.Completions.New(
-		context.Background(),
+		ctx,
 		openai.ChatCompletionNewParams{
 			Model: openai.ChatModelGPT4o,
 			Messages: []openai.ChatCompletionMessageParamUnion{

@@ -27,9 +27,12 @@ func main() {
 		option.WithHTTPClient(httpClient),
 	)
 
-	// Set attribution to track costs by user (affects all future requests)
+	ctx := context.Background()
+
+	// Set attribution to track costs by user. It rides in ctx, so it applies to
+	// the calls made with ctx
 	janeSmith := "Jane Smith"
-	err = crystilClient.SetAttribution(&crystil.Attribution{
+	ctx, err = crystil.SetAttribution(ctx, &crystil.Attribution{
 		ParentID:   "user-456",
 		ParentName: &janeSmith,
 	})
@@ -38,7 +41,7 @@ func main() {
 	}
 
 	// Use Anthropic as normal - analytics tracked automatically
-	message, err := anthropicClient.Messages.New(context.Background(), anthropic.MessageNewParams{
+	message, err := anthropicClient.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     anthropic.ModelClaudeSonnet4_5_20250929,
 		MaxTokens: 1024,
 		Messages: []anthropic.MessageParam{
@@ -57,9 +60,9 @@ func main() {
 		}
 	}
 
-	// Update attribution for a different user (affects same anthropicClient)
+	// Attribute the next request to a different user, through the same anthropicClient
 	bobJohnson := "Bob Johnson"
-	err = crystilClient.SetAttribution(&crystil.Attribution{
+	ctx, err = crystil.SetAttribution(ctx, &crystil.Attribution{
 		ParentID:   "user-789",
 		ParentName: &bobJohnson,
 	})
@@ -68,7 +71,7 @@ func main() {
 	}
 
 	// This request will be attributed to Bob Johnson
-	message2, err := anthropicClient.Messages.New(context.Background(), anthropic.MessageNewParams{
+	message2, err := anthropicClient.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     anthropic.ModelClaudeSonnet4_5_20250929,
 		MaxTokens: 1024,
 		Messages: []anthropic.MessageParam{

@@ -57,6 +57,23 @@ func TestClientInfoSendsNullVersion(t *testing.T) {
 	}
 }
 
+// TestPayloadSendsNullAttribution checks that a payload with no attribution sends
+// attribution as null, as the other SDKs do: the backend quarantines a payload
+// without the key.
+func TestPayloadSendsNullAttribution(t *testing.T) {
+	data, err := json.Marshal(Payload{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if attribution, ok := got["attribution"]; !ok || attribution != nil {
+		t.Errorf("payload = %s, want attribution null", data)
+	}
+}
+
 // TestClientInfoSendsNullProvider checks that a payload with no framework sends
 // conversation.client.provider as null, as the other SDKs do, not without the key.
 func TestClientInfoSendsNullProvider(t *testing.T) {

@@ -167,10 +167,6 @@ func (s *streamingResponseBody) send() {
 		exc = &failure
 	}
 	s.mu.Unlock()
-	status := "succeeded"
-	if exc != nil {
-		status = "failed"
-	}
 
 	// Parse request
 	var query map[string]interface{}
@@ -178,62 +174,7 @@ func (s *streamingResponseBody) send() {
 		_ = json.Unmarshal(s.reqBody, &query)
 	}
 
-	// Build attribution for payload (read from client dynamically)
-	var attr interface{}
-	if s.client.attribution != nil {
-		parentMap := map[string]interface{}{
-			"id": s.client.attribution.ParentID,
-		}
-		if s.client.attribution.ParentName != nil {
-			parentMap["name"] = *s.client.attribution.ParentName
-		}
-
-		attr = map[string]interface{}{
-			"parent": parentMap,
-		}
-
-		if s.client.attribution.SubsidiaryID != nil {
-			subsidiaryMap := map[string]interface{}{
-				"id": *s.client.attribution.SubsidiaryID,
-			}
-			if s.client.attribution.SubsidiaryName != nil {
-				subsidiaryMap["name"] = *s.client.attribution.SubsidiaryName
-			}
-			attr.(map[string]interface{})["subsidiary"] = subsidiaryMap
-		}
-	}
-
-	// Build and send analytics payload
-	payload := internal.Payload{
-		Attribution: attr,
-		Conversation: internal.Conversation{
-			Client:   s.info,
-			Query:    query,
-			Response: response,
-		},
-		Meta: internal.Meta{
-			API: internal.APIInfo{
-				Key: s.client.cfg.apiKey,
-			},
-			FNFG: internal.FNFGInfo{
-				Exc:    exc,
-				Status: status,
-			},
-			SDK: internal.SDKInfo{
-				Client:  "go",
-				Version: s.client.cfg.version,
-			},
-		},
-		Time: internal.TimeInfo{
-			Start: s.startTime,
-			End:   end,
-		},
-		Tx: internal.Transaction{
-			UUID: s.client.txID,
-		},
-	}
-
-	s.client.collector.SendAsync(payload)
+	s.client.collector.SendAsync(s.client.newPayload(s.ctx, s.info, query, response, exc, s.startTime, end))
 }
 
 // reconstructResponse parses the SSE chunks into the response to record, in the
