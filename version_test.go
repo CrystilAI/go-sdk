@@ -1,8 +1,6 @@
 package crystil
 
 import (
-	"context"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,8 +8,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/tmc/langchaingo/llms"
 
 	"github.com/CrystilAI/go-sdk/internal"
 )
@@ -77,42 +73,6 @@ func TestSDKVersion(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := sdkVersion(tc.provider, tc.header); got != tc.want {
 				t.Errorf("sdkVersion() = %q, want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-// TestLangChainPayloadNamesVersion checks that LangChain payloads report
-// langchaingo's version, since langchaingo calls providers with its own clients.
-func TestLangChainPayloadNamesVersion(t *testing.T) {
-	saved := internal.BuildDeps
-	t.Cleanup(func() { internal.BuildDeps = saved })
-	internal.BuildDeps = func() []*debug.Module {
-		return []*debug.Module{{Path: "github.com/tmc/langchaingo", Version: "v0.1.13"}}
-	}
-
-	ctx := context.Background()
-	calls := []struct {
-		name string
-		call func(h *langChainHandler)
-	}{
-		{"end", func(h *langChainHandler) { h.HandleLLMEnd(ctx, map[string]any{"text": "hi"}) }},
-		{"generate content end", func(h *langChainHandler) {
-			h.HandleLLMGenerateContentEnd(ctx, &llms.ContentResponse{Choices: []*llms.ContentChoice{{Content: "hi"}}})
-		}},
-		{"error", func(h *langChainHandler) { h.HandleLLMError(ctx, errors.New("rate limited")) }},
-	}
-	for _, tc := range calls {
-		t.Run(tc.name, func(t *testing.T) {
-			client := newQueueClient()
-			tc.call(client.NewLangChainHandler().(*langChainHandler))
-			select {
-			case payload := <-client.collector.queue:
-				if got := payload.Conversation.Client.Version; got != "0.1.13" {
-					t.Errorf("conversation.client.version = %q, want %q", got, "0.1.13")
-				}
-			default:
-				t.Fatal("no payload sent")
 			}
 		})
 	}

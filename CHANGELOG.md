@@ -59,6 +59,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+- **BREAKING**: `Client.NewLangChainHandler`. Pass `crystilClient.HTTPClient(provider)` to
+  langchaingo's `WithHTTPClient` instead.
+
+### Added
+- `Client.NewHTTPClient` and `Client.WrapTransport`, for a library that needs its own HTTP client,
+  such as Google's on Vertex AI, or takes a transport.
+
 ### Changed
 - Streamed OpenAI chat completions set `stream_options.include_usage`, so they are recorded with
   tokens. The extra usage chunk is hidden from a caller that did not ask for it.
@@ -72,3 +80,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Gemini streams, and event streams the request does not flag, reach the caller as they arrive.
 - A response body cut short made openai-go and anthropic-sdk-go send the call again.
 - The backend rejected every Go payload, whose times were strings: they are now Unix seconds.
+- A stream that is neither read to its end nor closed, as langchaingo's `googleai` leaves some, is
+  recorded when its request's context ends.
+- A request that ended after `Client.Close` panicked.

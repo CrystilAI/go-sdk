@@ -30,6 +30,7 @@ Sign up here: [app.crystil.com](https://app.crystil.com/)
 | OpenAI | `github.com/openai/openai-go/v3` | v3.2.0 |
 | Anthropic | `github.com/anthropics/anthropic-sdk-go` | v1.13.0 |
 | Google Gemini and Vertex AI | `google.golang.org/genai` | v1.29.0 |
+| LangChain, with OpenAI or Google models | `github.com/tmc/langchaingo` | v0.1.13 |
 
 # Documentation
 

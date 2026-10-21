@@ -17,17 +17,19 @@ import (
 // It reads transparently while building a complete response for tracking.
 type streamingResponseBody struct {
 	reader    io.ReadCloser
-	mu        sync.Mutex // guards buffer, failure and checked: send can run while another goroutine reads
+	mu        sync.Mutex // guards buffer, end, failure and checked: send can run while another goroutine reads
 	buffer    *bytes.Buffer
-	failure   string // why the stream failed, or ""
-	checked   int    // how much of buffer findErrorEvent has looked at
+	end       time.Time // when data last arrived, or the stream reported its end
+	failure   string    // why the stream failed, or ""
+	checked   int       // how much of buffer findErrorEvent has looked at
 	client    *Client
 	provider  Provider
-	version   string
+	info      internal.ClientInfo
 	reqBody   []byte
 	startTime time.Time
 	ctx       context.Context
 	sendOnce  sync.Once
+	stop      func() bool // cancels the send set to run when ctx ends
 }
 
 // newStreamingResponseBody creates a streaming wrapper.
@@ -35,21 +37,27 @@ func newStreamingResponseBody(
 	reader io.ReadCloser,
 	client *Client,
 	provider Provider,
-	version string,
+	info internal.ClientInfo,
 	reqBody []byte,
 	startTime time.Time,
 	ctx context.Context,
 ) *streamingResponseBody {
-	return &streamingResponseBody{
+	s := &streamingResponseBody{
 		reader:    reader,
 		buffer:    &bytes.Buffer{},
 		client:    client,
 		provider:  provider,
-		version:   version,
+		info:      info,
 		reqBody:   reqBody,
 		startTime: startTime,
+		end:       time.Now(), // the headers arrived
 		ctx:       ctx,
 	}
+	// langchaingo's googleai can stop a stream early without reading to its end
+	// or closing it, so a stream is also sent when its context ends. Only Read and
+	// Close call s.stop: the function can run before AfterFunc returns.
+	s.stop = context.AfterFunc(ctx, func() { s.sendOnce.Do(s.send) })
+	return s
 }
 
 // Read implements io.Reader, accumulating chunks as they're read. It sends
@@ -58,9 +66,10 @@ func newStreamingResponseBody(
 func (s *streamingResponseBody) Read(p []byte) (n int, err error) {
 	n, err = s.reader.Read(p)
 	failed := false
-	if n > 0 {
+	if n > 0 || err == io.EOF {
 		s.mu.Lock()
 		s.buffer.Write(p[:n])
+		s.end = time.Now()
 		failed = s.findErrorEvent()
 		s.mu.Unlock()
 	}
@@ -71,10 +80,12 @@ func (s *streamingResponseBody) Read(p []byte) (n int, err error) {
 		if s.failure == "" {
 			s.failure = err.Error()
 		}
+		s.end = time.Now()
 		s.mu.Unlock()
 		failed = true
 	}
 	if err == io.EOF || failed {
+		s.stop()
 		s.sendOnce.Do(s.send)
 	}
 	return n, err
@@ -132,6 +143,7 @@ func errorEvent(provider Provider, chunk map[string]interface{}) (string, bool) 
 // stopped reading before its end. It may run while another goroutine reads.
 func (s *streamingResponseBody) Close() error {
 	defer s.reader.Close()
+	s.stop()
 	s.sendOnce.Do(s.send)
 	return nil
 }
@@ -145,8 +157,10 @@ func (s *streamingResponseBody) send() {
 	if response == nil {
 		return
 	}
-
+	// The end is when the stream stopped, as the Python SDK records it, not when
+	// it was closed or its context ended, which can be much later.
 	s.mu.Lock()
+	end := s.end
 	var exc *string
 	if s.failure != "" {
 		failure := s.failure
@@ -193,11 +207,7 @@ func (s *streamingResponseBody) send() {
 	payload := internal.Payload{
 		Attribution: attr,
 		Conversation: internal.Conversation{
-			Client: internal.ClientInfo{
-				Provider: "",
-				Title:    string(s.provider),
-				Version:  s.version,
-			},
+			Client:   s.info,
 			Query:    query,
 			Response: response,
 		},
@@ -216,7 +226,7 @@ func (s *streamingResponseBody) send() {
 		},
 		Time: internal.TimeInfo{
 			Start: s.startTime,
-			End:   time.Now(),
+			End:   end,
 		},
 		Tx: internal.Transaction{
 			UUID: s.client.txID,
@@ -263,6 +273,11 @@ func (s *streamingResponseBody) reconstructResponse() interface{} {
 	}
 
 	if len(chunks) == 0 {
+		// Google's REST clients, such as the one langchaingo uses, stream one JSON
+		// array instead of SSE events.
+		chunks = arrayChunks(content)
+	}
+	if len(chunks) == 0 {
 		return nil
 	}
 
@@ -274,6 +289,24 @@ func (s *streamingResponseBody) reconstructResponse() interface{} {
 	}
 	// Anthropic and Google: the events as sent. The backend reads a list as a
 	// stream, and takes usage, stop reasons and tool calls from the events.
+	return chunks
+}
+
+// arrayChunks returns the objects of a JSON array that arrived whole, so a
+// stream cut short keeps the chunks it received.
+func arrayChunks(content string) []map[string]interface{} {
+	decoder := json.NewDecoder(strings.NewReader(content))
+	if token, err := decoder.Token(); err != nil || token != json.Delim('[') {
+		return nil
+	}
+	var chunks []map[string]interface{}
+	for decoder.More() {
+		var chunk map[string]interface{}
+		if err := decoder.Decode(&chunk); err != nil {
+			break
+		}
+		chunks = append(chunks, chunk)
+	}
 	return chunks
 }
 

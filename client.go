@@ -7,7 +7,6 @@ import (
 
 	"github.com/CrystilAI/go-sdk/api"
 	"github.com/google/uuid"
-	"github.com/tmc/langchaingo/callbacks"
 )
 
 const version = "0.2.1"
@@ -77,20 +76,47 @@ func (c *Client) SetAttribution(attr *Attribution) error {
 
 // HTTPClient returns an HTTP client configured to track analytics for the specified provider.
 // Use this client when creating your own provider clients (OpenAI, Anthropic, Google, etc.).
+// Its only setting is its Transport, from WrapTransport(provider, nil).
 //
 // Example:
 //
-//	crystil, _ := crystil.New(crystil.WithAPIKey("..."))
-//	httpClient := crystil.HTTPClient(crystil.ProviderOpenAI)
-//	openaiClient := openai.NewClient(openai.WithHTTPClient(httpClient), openai.WithAPIKey("..."))
+//	crystilClient, _ := crystil.New(crystil.WithAPIKey("..."))
+//	httpClient := crystilClient.HTTPClient(crystil.ProviderOpenAI)
+//	openaiClient := openai.NewClient(option.WithHTTPClient(httpClient), option.WithAPIKey("..."))
 func (c *Client) HTTPClient(provider Provider) *http.Client {
-	return &http.Client{
-		Transport: &tracingTransport{
-			base:     http.DefaultTransport,
-			client:   c,
-			provider: provider,
-		},
+	return &http.Client{Transport: c.WrapTransport(provider, nil)}
+}
+
+// NewHTTPClient returns a copy of base, with the same settings, that tracks
+// analytics for the specified provider and sends each request on through base's
+// transport. base itself is left as it was; a nil base gives what HTTPClient does.
+// Use it where the provider's library needs an HTTP client of its own, such as
+// Google's authenticated client for Vertex AI.
+//
+// Example:
+//
+//	httpClient, err := httptransport.NewClient(&httptransport.Options{Credentials: creds})
+//	googleClient, err := genai.NewClient(ctx, &genai.ClientConfig{
+//		Backend:    genai.BackendVertexAI,
+//		HTTPClient: crystilClient.NewHTTPClient(crystil.ProviderGoogle, httpClient),
+//	})
+func (c *Client) NewHTTPClient(provider Provider, base *http.Client) *http.Client {
+	if base == nil {
+		return c.HTTPClient(provider)
 	}
+	httpClient := *base
+	httpClient.Transport = c.WrapTransport(provider, base.Transport)
+	return &httpClient
+}
+
+// WrapTransport returns a transport that tracks analytics for the specified
+// provider and sends each request on through base, or http.DefaultTransport when
+// base is nil. Use it where a library takes a transport rather than a client.
+func (c *Client) WrapTransport(provider Provider, base http.RoundTripper) http.RoundTripper {
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return &tracingTransport{base: base, client: c, provider: provider}
 }
 
 // Close gracefully shuts down the client, ensuring all analytics are sent.
@@ -108,10 +134,4 @@ func (c *Client) Workflows() *api.WorkflowsClient {
 func (c *Client) Workflow(uuid string) *api.WorkflowClient {
 	apiClient := api.NewClient(c.cfg.apiURL, c.cfg.apiKey, c.cfg.timeout)
 	return api.NewWorkflowClient(uuid, apiClient)
-}
-
-// NewLangChainHandler creates a LangChain callback handler with Crystil analytics tracking.
-// Use this with LangChain's callback system to automatically track LLM calls.
-func (c *Client) NewLangChainHandler() callbacks.Handler {
-	return newLangChainHandler(c)
 }

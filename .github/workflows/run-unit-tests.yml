@@ -138,9 +138,10 @@ jobs:
           go get \
             github.com/openai/openai-go/v3@latest \
             github.com/anthropics/anthropic-sdk-go@latest \
-            google.golang.org/genai@latest
+            google.golang.org/genai@latest \
+            github.com/tmc/langchaingo@latest
           go mod tidy
-          grep -E 'openai-go|anthropic-sdk-go|google.golang.org/genai' go.mod
+          grep -E 'openai-go|anthropic-sdk-go|google.golang.org/genai|langchaingo' go.mod
 
       - name: Test
         working-directory: providertest

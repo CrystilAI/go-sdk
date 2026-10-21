@@ -1,10 +1,20 @@
 package crystil
 
 import (
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
+
+func init() {
+	// Enable test mode to prevent actual network calls
+	os.Setenv("CRYSTIL_TEST_MODE", "1")
+}
 
 func TestNew(t *testing.T) {
 	tests := []struct {
@@ -273,31 +283,137 @@ func TestHTTPClient(t *testing.T) {
 	}
 }
 
-func TestNewLangChainHandler(t *testing.T) {
+// A request that ends after the client is closed, as during a server's shutdown,
+// is dropped instead of crashing the program. Closing twice is safe too.
+func TestRequestAfterClose(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"c1","object":"chat.completion","choices":[]}`)
+	}))
+	defer server.Close()
+
 	client, err := New(WithAPIKey("test-key"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close()
+	httpClient := client.HTTPClient(ProviderOpenAI)
+	if err := client.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatal(err)
+	}
 
-	handler := client.NewLangChainHandler()
-	if handler == nil {
-		t.Error("Expected non-nil LangChain handler")
+	resp, err := httpClient.Post(server.URL+"/v1/chat/completions", "application/json", strings.NewReader(`{"model":"gpt-4o-mini"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+}
+
+// HTTPClient sets only the client's Transport: Crystil's, over http.DefaultTransport.
+func TestHTTPClientSetsOnlyTransport(t *testing.T) {
+	httpClient := newQueueClient().HTTPClient(ProviderOpenAI)
+	if !reflect.DeepEqual(*httpClient, http.Client{Transport: httpClient.Transport}) {
+		t.Errorf("HTTPClient() = %+v, want a client with only Transport set", httpClient)
+	}
+	transport, ok := httpClient.Transport.(*tracingTransport)
+	if !ok || transport.base != http.DefaultTransport || transport.provider != ProviderOpenAI {
+		t.Errorf("Transport = %#v, want Crystil's for openai, over http.DefaultTransport", httpClient.Transport)
 	}
 }
 
-func TestNewLangChainHandlerWithTransaction(t *testing.T) {
-	client, err := New(WithAPIKey("test-key"))
+// roundTripFunc lets a function stand in for an http.RoundTripper.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+// WrapTransport records each call and sends it on through the base it is given,
+// or http.DefaultTransport when that is nil.
+func TestWrapTransport(t *testing.T) {
+	client := newQueueClient()
+	var sent *http.Request
+	base := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		sent = req
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"id":"c1"}`)), Request: req}, nil
+	})
+
+	req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", strings.NewReader(`{"model":"gpt-4o-mini"}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close()
+	resp, err := client.WrapTransport(ProviderOpenAI, base).RoundTrip(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if sent == nil {
+		t.Error("base got no request")
+	}
+	select {
+	case payload := <-client.collector.queue:
+		if got := payload.Conversation.Query["model"]; got != "gpt-4o-mini" {
+			t.Errorf("query model = %v, want gpt-4o-mini", got)
+		}
+	default:
+		t.Error("no payload recorded")
+	}
 
-	// Create new transaction
-	txClient := client.NewTransaction()
+	if transport, _ := client.WrapTransport(ProviderOpenAI, nil).(*tracingTransport); transport == nil || transport.base != http.DefaultTransport {
+		t.Errorf("WrapTransport(nil) base = %#v, want http.DefaultTransport", transport)
+	}
+}
 
-	handler := txClient.NewLangChainHandler()
-	if handler == nil {
-		t.Error("Expected non-nil LangChain handler with transaction")
+// NewHTTPClient returns a copy of the client it is given, with the same settings,
+// that records each call and sends it on through that client's transport. The
+// client it is given stays as it was.
+func TestNewHTTPClient(t *testing.T) {
+	client := newQueueClient()
+	var sent bool
+	base := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		sent = true
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"id":"c1"}`)), Request: req}, nil
+	})
+	given := &http.Client{Transport: base, Timeout: time.Minute}
+
+	httpClient := client.NewHTTPClient(ProviderOpenAI, given)
+	resp, err := httpClient.Post("https://api.openai.com/v1/chat/completions", "application/json", strings.NewReader(`{"model":"gpt-4o-mini"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if !sent {
+		t.Error("the given client's transport got no request")
+	}
+	if len(client.collector.queue) != 1 {
+		t.Errorf("%d payloads recorded, want 1", len(client.collector.queue))
+	}
+	if httpClient.Timeout != time.Minute {
+		t.Errorf("Timeout = %v, want the given client's", httpClient.Timeout)
+	}
+	if _, ok := given.Transport.(roundTripFunc); !ok {
+		t.Errorf("given client's Transport = %#v, want it unchanged", given.Transport)
+	}
+
+	if got := client.NewHTTPClient(ProviderOpenAI, nil); !reflect.DeepEqual(got, client.HTTPClient(ProviderOpenAI)) {
+		t.Errorf("NewHTTPClient(nil) = %+v, want what HTTPClient returns", got)
+	}
+}
+
+// idleCloser records whether CloseIdleConnections reached it.
+type idleCloser struct {
+	http.RoundTripper
+	closed bool
+}
+
+func (c *idleCloser) CloseIdleConnections() { c.closed = true }
+
+// CloseIdleConnections on a client NewHTTPClient returns reaches the transport
+// of the client it was given.
+func TestCloseIdleConnections(t *testing.T) {
+	base := &idleCloser{}
+	newQueueClient().NewHTTPClient(ProviderOpenAI, &http.Client{Transport: base}).CloseIdleConnections()
+	if !base.closed {
+		t.Error("CloseIdleConnections did not reach the given client's transport")
 	}
 }

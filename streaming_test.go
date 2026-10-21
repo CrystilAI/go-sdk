@@ -87,7 +87,7 @@ func TestStreamingResponseBodyRead(t *testing.T) {
 		reader,
 		client,
 		ProviderOpenAI,
-		"",
+		internal.ClientInfo{},
 		[]byte(`{"model":"gpt-4","stream":true}`),
 		time.Now(),
 		context.Background(),
@@ -162,6 +162,7 @@ func TestStreamedEventLists(t *testing.T) {
 		provider Provider
 		path     string
 		events   []string
+		array    bool // sent as one JSON array, as Google's REST clients stream, not as SSE
 	}{
 		{"anthropic", ProviderAnthropic, "/v1/messages", []string{
 			`{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-haiku-4-5","content":[],"stop_reason":null,"usage":{"input_tokens":10,"output_tokens":1}}}`,
@@ -171,15 +172,24 @@ func TestStreamedEventLists(t *testing.T) {
 			`{"type":"content_block_stop","index":0}`,
 			`{"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"output_tokens":5}}`,
 			`{"type":"message_stop"}`,
-		}},
+		}, false},
 		{"google", ProviderGoogle, "/v1beta/models/gemini-2.5-flash:streamGenerateContent", []string{
 			`{"candidates":[{"content":{"parts":[{"text":"2"}],"role":"model"}}],"usageMetadata":{"promptTokenCount":9,"totalTokenCount":9},"modelVersion":"gemini-2.5-flash"}`,
 			`{"candidates":[{"content":{"parts":[{"text":" + 2 = 4"}],"role":"model"},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":9,"candidatesTokenCount":8,"totalTokenCount":17},"modelVersion":"gemini-2.5-flash"}`,
-		}},
+		}, false},
+		{"google json array", ProviderGoogle, "/v1beta/models/gemini-2.5-flash:streamGenerateContent", []string{
+			`{"candidates":[{"content":{"parts":[{"text":"2"}],"role":"model"}}],"usageMetadata":{"promptTokenCount":9,"totalTokenCount":9},"modelVersion":"gemini-2.5-flash"}`,
+			`{"candidates":[{"content":{"parts":[{"text":" + 2 = 4"}],"role":"model"},"finishReason":1}],"usageMetadata":{"promptTokenCount":9,"candidatesTokenCount":8,"totalTokenCount":17},"modelVersion":"gemini-2.5-flash"}`,
+		}, true},
 	}
 	for _, tc := range streams {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if tc.array {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = fmt.Fprintf(w, "[%s]", strings.Join(tc.events, ",\r\n"))
+					return
+				}
 				w.Header().Set("Content-Type", "text/event-stream")
 				for _, e := range tc.events {
 					var event struct{ Type string }
@@ -277,7 +287,7 @@ func TestSSEDataWithoutSpace(t *testing.T) {
 	for _, tt := range tests {
 		client := newQueueClient()
 		s := newStreamingResponseBody(io.NopCloser(strings.NewReader(tt.stream)), client, tt.provider,
-			"", nil, time.Now(), context.Background())
+			internal.ClientInfo{}, nil, time.Now(), context.Background())
 		_, _ = io.ReadAll(s)
 		select {
 		case payload := <-client.collector.queue:
@@ -293,19 +303,44 @@ func TestSSEDataWithoutSpace(t *testing.T) {
 // A stream whose context has ended, as when the end user disconnects, is still
 // recorded when it is closed. It was once dropped at random, so one try is not enough.
 func TestStreamSentAfterContextEnds(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
 	for i := 0; i < 50; i++ {
+		ctx, cancel := context.WithCancel(context.Background())
 		client := newQueueClient()
 		s := newStreamingResponseBody(io.NopCloser(strings.NewReader("data: {}\n\n")), client, ProviderOpenAI,
-			"", nil, time.Now(), ctx)
+			internal.ClientInfo{}, nil, time.Now(), ctx)
 		if _, err := s.Read(make([]byte, 64)); err != nil {
 			t.Fatal(err)
 		}
-		_ = s.Close()
+		cancel()
+		_ = s.Close() // returns once the stream is sent, by Close or when ctx ended
 		if got := len(client.collector.queue); got != 1 {
 			t.Fatalf("try %d: %d payloads queued, want 1", i, got)
 		}
+	}
+}
+
+// A stream that is neither read to its end nor closed, as langchaingo's googleai
+// leaves one it stops early, is recorded when its context ends.
+func TestStreamSentWhenContextEnds(t *testing.T) {
+	reader, writer := io.Pipe()
+	defer writer.Close()
+	go func() { _, _ = io.WriteString(writer, "data: {\"n\":1}\n\n") }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	client := newQueueClient()
+	s := newStreamingResponseBody(reader, client, ProviderGoogle, internal.ClientInfo{}, nil, time.Now(), ctx)
+	if _, err := s.Read(make([]byte, 1024)); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+
+	select {
+	case payload := <-client.collector.queue:
+		if got, _ := json.Marshal(payload.Conversation.Response); string(got) != `[{"n":1}]` {
+			t.Errorf("response = %s, want the chunk read before the context ended", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no payload recorded after the context ended")
 	}
 }
 
@@ -333,13 +368,62 @@ func TestUsageChunkFilter(t *testing.T) {
 	}
 }
 
+// A stream's end time is when the stream reported its end, or for one stopped
+// early, when its last data arrived, as the Python SDK records it: not when the
+// caller closed it or its context ended, which can be much later.
+func TestStreamEndTime(t *testing.T) {
+	tests := []struct {
+		name string
+		stop func(s *streamingResponseBody, writer *io.PipeWriter, cancel context.CancelFunc)
+		// atStop: the end is when the stream was stopped, not before it.
+		atStop bool
+	}{
+		{"read to its end", func(s *streamingResponseBody, writer *io.PipeWriter, _ context.CancelFunc) {
+			_ = writer.Close()
+			_, _ = s.Read(make([]byte, 1024))
+		}, true},
+		{"closed", func(s *streamingResponseBody, _ *io.PipeWriter, _ context.CancelFunc) { _ = s.Close() }, false},
+		{"context ended", func(_ *streamingResponseBody, _ *io.PipeWriter, cancel context.CancelFunc) { cancel() }, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader, writer := io.Pipe()
+			defer writer.Close()
+			go func() { _, _ = io.WriteString(writer, "data: {\"n\":1}\n\n") }()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			client := newQueueClient()
+			s := newStreamingResponseBody(reader, client, ProviderGoogle, internal.ClientInfo{}, nil, time.Now(), ctx)
+			if _, err := s.Read(make([]byte, 1024)); err != nil {
+				t.Fatal(err)
+			}
+
+			time.Sleep(time.Millisecond)
+			stopped := time.Now()
+			tt.stop(s, writer, cancel)
+			select {
+			case payload := <-client.collector.queue:
+				want := "when its data arrived, before the stop"
+				if tt.atStop {
+					want = "at the stop"
+				}
+				if end := payload.Time.End; end.Before(stopped) == tt.atStop {
+					t.Errorf("end is %v after it was stopped, want it %s", end.Sub(stopped), want)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("no payload recorded")
+			}
+		})
+	}
+}
+
 // A stream with no chunks, as when it fails before its first, is not recorded,
 // as the Python SDK records none: the backend would store a call with no tokens.
 func TestEmptyStreamNotRecorded(t *testing.T) {
 	for _, provider := range []Provider{ProviderOpenAI, ProviderAnthropic, ProviderGoogle} {
 		client := newQueueClient()
 		s := newStreamingResponseBody(io.NopCloser(strings.NewReader(": keep-alive\n\n")), client, provider,
-			"", nil, time.Now(), context.Background())
+			internal.ClientInfo{}, nil, time.Now(), context.Background())
 		_, _ = io.ReadAll(s)
 		_ = s.Close()
 		if got := len(client.collector.queue); got != 0 {
@@ -379,7 +463,7 @@ func TestFailedStreamRecorded(t *testing.T) {
 				go func() { _, _ = io.WriteString(writer, tt.stream) }()
 				body = reader
 			}
-			s := newStreamingResponseBody(body, client, tt.provider, "", nil, time.Now(), context.Background())
+			s := newStreamingResponseBody(body, client, tt.provider, internal.ClientInfo{}, nil, time.Now(), context.Background())
 			if tt.drop {
 				_, _ = io.ReadAll(s)
 			} else if _, err := io.ReadFull(s, make([]byte, len(tt.stream))); err != nil {
@@ -411,7 +495,7 @@ func TestErrorOnlyStreamNotRecorded(t *testing.T) {
 	for provider, stream := range streams {
 		client := newQueueClient()
 		s := newStreamingResponseBody(io.NopCloser(strings.NewReader(stream)), client, provider,
-			"", nil, time.Now(), context.Background())
+			internal.ClientInfo{}, nil, time.Now(), context.Background())
 		_, _ = io.ReadAll(s)
 		_ = s.Close()
 		if got := len(client.collector.queue); got != 0 {
@@ -429,9 +513,8 @@ func TestCanceledStreamNotFailed(t *testing.T) {
 		strings.NewReader("data: {\"id\":\"c1\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hi\"}}]}\n\n"),
 		cancelThenFail{cancel},
 	))
-	s := newStreamingResponseBody(body, client, ProviderOpenAI, "", nil, time.Now(), ctx)
+	s := newStreamingResponseBody(body, client, ProviderOpenAI, internal.ClientInfo{}, nil, time.Now(), ctx)
 	_, _ = io.ReadAll(s)
-	_ = s.Close()
 
 	select {
 	case payload := <-client.collector.queue:
@@ -451,6 +534,25 @@ func (r cancelThenFail) Read([]byte) (int, error) {
 	return 0, context.Canceled
 }
 
+// A Google JSON-array stream cut short, as when the connection drops, keeps the
+// chunks that arrived whole.
+func TestGoogleArrayStreamCutShort(t *testing.T) {
+	const chunk = `{"candidates":[{"content":{"parts":[{"text":"2"}],"role":"model"}}]}`
+	client := newQueueClient()
+	s := newStreamingResponseBody(io.NopCloser(strings.NewReader("["+chunk+",\r\n{\"cand")), client, ProviderGoogle,
+		internal.ClientInfo{}, nil, time.Now(), context.Background())
+	_, _ = io.ReadAll(s)
+
+	select {
+	case payload := <-client.collector.queue:
+		if got, _ := json.Marshal(payload.Conversation.Response); string(got) != "["+chunk+"]" {
+			t.Errorf("response = %s, want the chunk that arrived whole: [%s]", got, chunk)
+		}
+	default:
+		t.Fatal("no payload recorded")
+	}
+}
+
 // Closing a stream while another goroutine reads it, which net/http's own
 // response body allows, must not race on the buffer: go test -race catches it.
 func TestStreamClosedWhileRead(t *testing.T) {
@@ -462,7 +564,7 @@ func TestStreamClosedWhileRead(t *testing.T) {
 			}
 		}
 	}()
-	s := newStreamingResponseBody(reader, newQueueClient(), ProviderOpenAI, "", nil, time.Now(),
+	s := newStreamingResponseBody(reader, newQueueClient(), ProviderOpenAI, internal.ClientInfo{}, nil, time.Now(),
 		context.Background())
 	done := make(chan struct{})
 	go func() {

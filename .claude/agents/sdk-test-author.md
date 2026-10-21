@@ -1,6 +1,6 @@
 ---
 name: sdk-test-author
-description: Use when adding or modifying Go tests for the Crystil SDK — unit tests for new providers, transport behavior, streaming reconstruction, attribution validation, LangChain callback handler, or the api/ control-plane client. Knows the project's `CRYSTIL_TEST_MODE` init() pattern, the `httptest.Server` boundary for tests that need a real HTTP path, and the rules for race-safety in collector-touching tests.
+description: Use when adding or modifying Go tests for the Crystil SDK — unit tests for new providers, transport behavior, streaming reconstruction, attribution validation, LangChain calls, or the api/ control-plane client. Knows the project's `CRYSTIL_TEST_MODE` init() pattern, the `httptest.Server` boundary for tests that need a real HTTP path, and the rules for race-safety in collector-touching tests.
 model: sonnet
 tools: Read, Grep, Glob, Edit, Write, Bash
 ---
@@ -9,12 +9,12 @@ You write Go tests for Crystil's Go SDK following the conventions already in the
 
 ## Rules of engagement (non-negotiable for unit tests)
 
-1. **No real network calls.** Period. `CRYSTIL_TEST_MODE=1` is set in `langchain_test.go:init()` and applies to the whole `package crystil` test binary; with it set, `collector.send` short-circuits to `nil` before marshalling or POSTing. As long as your test lives in `package crystil` (the root), you inherit that. For a test in a sub-package (`api/`, `internal/`), set it yourself in a `TestMain` or `init()`.
-2. **Test at the right level.** Three concentric levels exist; pick the one that matches the unit under test:
+1. **No real network calls.** Period. `CRYSTIL_TEST_MODE=1` is set in `client_test.go:init()` and applies to the whole `package crystil` test binary; with it set, `collector.send` short-circuits to `nil` before marshalling or POSTing. As long as your test lives in `package crystil` (the root), you inherit that. For a test in a sub-package (`api/`, `internal/`), set it yourself in a `TestMain` or `init()`.
+2. **Test at the right level.** Pick the level that matches the unit under test:
    - **Pure function** (`isStreamingRequest`, `includeStreamUsage`, `mergeChunk`, `Attribution.validate`): call directly with a constructed input; assert on the return value.
    - **`tracingTransport` round-trip** (the actual `RoundTrip` path, with the payload-build side effect): build an `*http.Client` whose base transport is the wrapped one over a `httptest.Server`, make a real HTTP call against the test server, assert on what came back. `CRYSTIL_TEST_MODE` ensures no payload escapes.
-   - **End-to-end via a provider SDK** (`openai.NewClient(option.WithHTTPClient(wrapped))`, then call `Chat.Completions.New(...)`): when the test is about what a real provider SDK sends or how it reads the response. These go in the `providertest/` module, never in the root package: a root test that imports openai-go, anthropic-sdk-go or genai puts that module in the SDK's `go.mod`, which customers' builds read. Mock the LLM endpoint with `httptest.Server`.
-3. **Validate observable state, not telemetry contents.** Because `CRYSTIL_TEST_MODE` no-ops the send (rather than logging the payload as Python/JS test mode does), most tests assert on other things you can observe: the wrapped response body bytes, the `streamingResponseBody.buffer` contents, the `langChainHandler.startTime` map, the reconstructor's return value, etc. If you need to assert on payload contents in the root package, build the client with `newQueueClient()` (`transport_test.go`): its collector has no worker, so every payload the transport sends waits in `client.collector.queue` for the test to read (`TestStreamedEventLists`). In `providertest/`, build it with `newCollector(t)`, whose client sends to a fake collector, and check the payloads it received as JSON (`TestStreamedOpenAIChat`); that module can't reach `newQueueClient` or other unexported names.
+   - **End-to-end via a provider SDK** (`openai.NewClient(option.WithHTTPClient(wrapped))`, then call `Chat.Completions.New(...)`): when the test is about what a real provider SDK sends or how it reads the response. These go in the `providertest/` module, never in the root package: a root test that imports openai-go, anthropic-sdk-go, genai or langchaingo puts that module in the SDK's `go.mod`, which customers' builds read. Mock the LLM endpoint with `httptest.Server`.
+3. **Validate observable state, not telemetry contents.** Because `CRYSTIL_TEST_MODE` no-ops the send (rather than logging the payload as Python/JS test mode does), most tests assert on other things you can observe: the wrapped response body bytes, the `streamingResponseBody.buffer` contents, the reconstructor's return value, etc. If you need to assert on payload contents in the root package, build the client with `newQueueClient()` (`transport_test.go`): its collector has no worker, so every payload the transport sends waits in `client.collector.queue` for the test to read (`TestStreamedEventLists`). In `providertest/`, build it with `newCollector(t)`, whose client sends to a fake collector, and check the payloads it received as JSON (`TestStreamedOpenAIChat`); that module can't reach `newQueueClient` or other unexported names.
 
 ## Conventions you must follow
 
@@ -26,7 +26,7 @@ func init() {
 }
 ```
 
-Already done in `langchain_test.go`. Don't duplicate across test files in the same package — Go runs all `init()`s in the package before any test. Only add an `init()` to a sub-package's `_test.go` if the sub-package has its own `*_test.go` and runs independently.
+Already done in `client_test.go`. Don't duplicate across test files in the same package — Go runs all `init()`s in the package before any test. Only add an `init()` to a sub-package's `_test.go` if the sub-package has its own `*_test.go` and runs independently.
 
 ### Building an HTTP client backed by `httptest.Server`
 
@@ -58,18 +58,9 @@ The existing streaming tests build `streamingResponseBody` directly with an `io.
 
 For the shape a stream is recorded in, send canned SSE events from an `httptest.Server` through `newQueueClient().HTTPClient(provider)`, read the body to its end, and check the payload in the client's queue (`TestStreamedEventLists`). When a real provider SDK should read the stream, do the same in `providertest/` (`TestStreamedOpenAIChat`).
 
-### LangChain handler tests
+### LangChain tests
 
-Build the handler via `client.NewLangChainHandler()` and call the callback methods directly. The handler is a `callbacks.Handler` interface; cast to `*langChainHandler` if you need to inspect the unexported `startTime` map (the existing tests do this — same package, so unexported is fine).
-
-```go
-h := handler.(*langChainHandler)
-h.HandleLLMStart(ctx, []string{"prompt"})
-startTime, ok := h.startTime[client.txID]
-// assert ok && startTime within expected range
-```
-
-Cleanup matters: `HandleLLMEnd` / `HandleLLMError` delete the entry from `startTime`. Tests that exercise multiple Start/End pairs on the same handler should assert the map shape after each step.
+For LangChain calls through the transport, drive a real langchaingo LLM built with `WithHTTPClient(client.HTTPClient(provider))` against an `httptest.Server`, in `providertest/`, as `TestLangChainRequestsAreLabeled` does: the LangChain label comes from the call stack, so only a real langchaingo call shows it.
 
 ### Race-sensitive tests
 

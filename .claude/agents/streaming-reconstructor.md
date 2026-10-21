@@ -9,7 +9,7 @@ You diagnose and modify Crystil's streaming reconstruction logic in `streaming.g
 
 - LLM providers emit SSE events in **several structurally distinct shapes**.
 - The recorded payload must take the shape the **Python SDK** records for that provider's streams, because that is what the backend reads. It is not the provider's unstreamed shape.
-- Telemetry must fire **exactly once**: when `Read` reaches the end of the stream or the stream fails, or on `Close()` if the caller stops first. A stream fails on a read error while the context is live, or on the error event its provider SDK stops reading at (`errorEvent`); it is recorded marked failed, without that event, as Python records it.
+- Telemetry must fire **exactly once**: when `Read` reaches the end of the stream or the stream fails, on `Close()` if the caller stops first, or when the request's context ends if none of those happens. A stream fails on a read error while the context is live, or on the error event its provider SDK stops reading at (`errorEvent`); it is recorded marked failed, without that event, as Python records it.
 - The user-facing `io.ReadCloser` contract must be preserved — callers must be able to read the stream byte-for-byte and close it normally. The one exception is the OpenAI usage chunk `usageChunkFilter` (`transport.go`) hides when Crystil asked for it and the caller did not.
 
 ## The contract
@@ -19,17 +19,20 @@ A streamed `conversation.response` must match what the Python SDK sends for the 
 ## The flow
 
 ```
-streamingResponseBody.Read(p)        // mirrors bytes to s.buffer
-  at io.EOF: s.sendOnce.Do(s.send)
+newStreamingResponseBody(...)
+  s.stop = context.AfterFunc(ctx, sendOnce.Do(send))  // langchaingo's googleai can leave a stream open
+streamingResponseBody.Read(p)        // mirrors bytes to s.buffer and the time to s.end, under s.mu
+  at io.EOF: s.stop(); s.sendOnce.Do(s.send)
 streamingResponseBody.Close()
+  s.stop()                           // the context's end no longer matters
   s.sendOnce.Do(s.send)              // no-op if the stream already ended
   s.reader.Close()
 
-send()
+send()                               // never calls s.stop: it can run before s.stop is set
   response = s.reconstructResponse()
   if response is nil: return         // no chunks: nothing to record, as in Python
-  build payload with response as conversation.response
-  collector.SendAsync(ctx, payload)
+  build payload with response as conversation.response, time.end = s.end
+  collector.SendAsync(payload)
 ```
 
 `reconstructResponse` parses a copy of `s.buffer`, taken under `s.mu`, line-by-line for `data: {json}` SSE frames (the space after `data:` is optional, as SSE allows), drops `data: [DONE]`, collects `chunks []map[string]interface{}`, then picks the shape by `s.provider`:
@@ -72,18 +75,18 @@ Each chunk:
 {"candidates":[{"content":{"parts":[{"text":"..."}],"role":"model"}}],"usageMetadata":{"promptTokenCount":9},"modelVersion":"gemini-2.5-flash"}
 ```
 
-Recorded as sent. The backend reads a list as a stream, joins text and `functionCall` parts across chunks, and takes each usage field from the last chunk that has it. On the Gemini API early chunks carry only the prompt count; on Vertex only the last chunk carries usage at all.
+Recorded as sent. Google's REST clients, such as generative-ai-go under langchaingo, stream one JSON array instead of SSE; `reconstructResponse` falls back to reading the buffer as that array (`TestStreamedEventLists`), keeping the chunks that arrived whole when it was cut short (`arrayChunks`, `TestGoogleArrayStreamCutShort`). The backend reads a list as a stream, joins text and `functionCall` parts across chunks, and takes each usage field from the last chunk that has it. On the Gemini API early chunks carry only the prompt count; on Vertex only the last chunk carries usage at all.
 
 ## Streaming detection (`isStreamingRequest`)
 
-Parses the request body as JSON and looks for `"stream": true`. `RoundTrip` also checks the URL and the response. **Google's `GenerateContentStream` sets no body flag**, so a path ending in `:streamGenerateContent` also counts as a stream. And a response whose `Content-Type` is `text/event-stream` counts as one (`isEventStream`), which catches streams marked where the transport doesn't look, such as openai-go's streamed transcriptions, which send `stream` as a multipart form field. A stream that misses every check falls through to non-streaming, where `captureBody` holds the whole stream back from the caller until it ends (`TestGeminiStreamPassesThrough`, `TestEventStreamPassesThrough`). Don't drop the body check; OpenAI and Anthropic use the flag.
+Parses the request body as JSON and looks for `"stream": true`. `RoundTrip` also checks the URL and the response. **Google's `GenerateContentStream` sets no body flag**, so a path ending in `:streamGenerateContent` also counts as a stream. And a response whose `Content-Type` is `text/event-stream` counts as one (`isEventStream`), which catches streams marked where the transport doesn't look, such as openai-go's streamed transcriptions, which send `stream` as a multipart form field. A stream that misses every check falls through to non-streaming, where `captureBody` holds the whole stream back from the caller until it ends (`TestGeminiStreamPassesThrough`, `TestEventStreamPassesThrough`). Don't drop the body check; OpenAI and Anthropic use the flag. Don't drop the path check either: langchaingo's Google streams are one JSON array sent as `application/json`.
 
 ## Common pitfalls
 
 - **Forgetting to type-assert chunk fields.** Every `chunk["foo"]` is `interface{}`. Use the `value, ok := chunk["foo"].(ExpectedType); ok` idiom.
 - **Mutating a chunk.** `mergeChunk` copies each list and object it takes from a chunk (`ownCopy`), as Python's does, so a later merge never changes an earlier chunk; keep that if you change it.
 - **Parsing the buffer mid-stream.** Only `send` builds the response from it — `Read()` may be called many times before the stream ends. `findErrorEvent` does look at each whole event as it arrives, to send a failed stream at once; it keeps its place in `checked`, so each event is looked at once.
-- **Firing telemetry twice.** Call `send` only through `sendOnce`: `Read` hits EOF or a failure and the caller may still close the stream, maybe twice (`TestStreamSentOnce`). Currently parse errors are silently dropped via `_ = err`; reconsider if you change that.
+- **Firing telemetry twice.** Call `send` only through `sendOnce`: `Read` hits EOF or a failure and the caller may still close the stream, maybe twice (`TestStreamSentOnce`). A chunk that fails to parse is skipped (`reconstructResponse` appends only chunks that unmarshal); reconsider if you change that.
 - **Goroutine leak via `streamingResponseBody`.** `send` does not start any goroutines; it does call `collector.SendAsync` which is non-blocking. Don't refactor `send` to `go fireTelemetry(...)` — `SendAsync` is already the goroutine boundary.
 - **Touching `s.buffer` without `s.mu`.** `send` can run on another goroutine than `Read`: a caller may `Close` from another goroutine, as net/http's own body allows, and the send at the context's end runs on its own (`TestStreamClosedWhileRead`). Hold `s.mu` only around the buffer, never across `s.reader.Read`, or `Close` waits for the next chunk.
 

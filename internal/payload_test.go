@@ -56,3 +56,19 @@ func TestClientInfoSendsNullVersion(t *testing.T) {
 		t.Errorf("conversation.client = %s, want version null", data)
 	}
 }
+
+// TestClientInfoSendsNullProvider checks that a payload with no framework sends
+// conversation.client.provider as null, as the other SDKs do, not without the key.
+func TestClientInfoSendsNullProvider(t *testing.T) {
+	data, err := json.Marshal(ClientInfo{Title: "openai", Version: "3.2.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if provider, ok := got["provider"]; !ok || provider != nil {
+		t.Errorf("conversation.client = %s, want provider null", data)
+	}
+}

@@ -20,6 +20,14 @@ type tracingTransport struct {
 	provider Provider
 }
 
+// CloseIdleConnections closes base's idle connections, as http.Client does for
+// a transport it holds directly.
+func (t *tracingTransport) CloseIdleConnections() {
+	if closer, ok := t.base.(interface{ CloseIdleConnections() }); ok {
+		closer.CloseIdleConnections()
+	}
+}
+
 // RoundTrip executes the request and captures analytics.
 func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	start := time.Now()
@@ -46,7 +54,7 @@ func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	// Check if this is a streaming request. Gemini marks a stream in the URL, not the body.
 	isStreaming := isStreamingRequest(reqBody) || strings.HasSuffix(req.URL.Path, ":streamGenerateContent")
 
-	version := sdkVersion(t.provider, req.Header)
+	info := t.clientInfo(req.Header)
 
 	// Execute request
 	resp, err := t.base.RoundTrip(req)
@@ -67,7 +75,7 @@ func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 			resp.Body,
 			t.client,
 			t.provider,
-			version,
+			info,
 			reqBody,
 			start,
 			req.Context(),
@@ -87,15 +95,25 @@ func (t *tracingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
 		// Build and send analytics payload async
-		payload := t.buildPayload(reqBody, respBody, version, start, time.Now())
+		payload := t.buildPayload(reqBody, respBody, info, start, time.Now())
 		t.client.collector.SendAsync(payload)
 	}
 
 	return resp, nil
 }
 
+// clientInfo names the library that sent the request. A request langchaingo
+// sends is recorded as a LangChain call, as the Python SDK records one, so the
+// backend routes it the same way.
+func (t *tracingTransport) clientInfo(header http.Header) internal.ClientInfo {
+	if title := langChainTitle(t.provider); title != "" {
+		return internal.ClientInfo{Provider: "langchain", Title: title, Version: langChainVersion()}
+	}
+	return internal.ClientInfo{Title: string(t.provider), Version: sdkVersion(t.provider, header)}
+}
+
 // buildPayload constructs the analytics payload.
-func (t *tracingTransport) buildPayload(reqBody, respBody []byte, version string, start, end time.Time) internal.Payload {
+func (t *tracingTransport) buildPayload(reqBody, respBody []byte, info internal.ClientInfo, start, end time.Time) internal.Payload {
 	var query map[string]interface{}
 	var response map[string]interface{}
 
@@ -135,11 +153,7 @@ func (t *tracingTransport) buildPayload(reqBody, respBody []byte, version string
 	return internal.Payload{
 		Attribution: attr,
 		Conversation: internal.Conversation{
-			Client: internal.ClientInfo{
-				Provider: "",
-				Title:    string(t.provider),
-				Version:  version,
-			},
+			Client:   info,
 			Query:    query,
 			Response: response,
 		},

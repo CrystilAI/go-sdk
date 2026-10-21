@@ -50,7 +50,7 @@ The examples make real LLM calls, which cost money. They send telemetry to the c
 |---|---|
 | `openai`, `streaming`, `langchain`, `invocation` | `OPENAI_API_KEY` |
 | `anthropic` | `ANTHROPIC_API_KEY` |
-| `google` | `GOOGLE_API_KEY` |
+| `google`, `langchain-google` | `GOOGLE_API_KEY` |
 | `workflow` | none |
 
 ```bash
@@ -75,7 +75,7 @@ go -C providertest test ./...                                 # the tests that u
 CRYSTIL_TEST_MODE=1 scripts/in-each-module.sh go test -race ./...  # every module, as CI runs them
 ```
 
-The tests in `providertest/` drive the real provider SDKs (openai-go, anthropic-sdk-go, genai) through the SDK and check what a fake collector receives; they clear `CRYSTIL_TEST_MODE` for it. None of these tests call an LLM provider or a Crystil service: they use local `httptest` servers or call the code directly. This repo has no integration tests against real providers.
+The tests in `providertest/` drive the real provider SDKs (openai-go, anthropic-sdk-go, genai, langchaingo) through the SDK and check what a fake collector receives; they clear `CRYSTIL_TEST_MODE` for it. None of these tests call an LLM provider or a Crystil service: they use local `httptest` servers or call the code directly. This repo has no integration tests against real providers.
 
 ### CI
 

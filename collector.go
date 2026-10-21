@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/CrystilAI/go-sdk/internal"
@@ -21,6 +22,9 @@ type collector struct {
 	// Channel for fire-and-forget sends
 	queue chan internal.Payload
 	done  chan struct{}
+
+	mu     sync.RWMutex // guards closed, so nothing sends on a closed queue
+	closed bool
 }
 
 // newCollector creates a new collector instance.
@@ -40,10 +44,15 @@ func newCollector(cfg *config) *collector {
 	return c
 }
 
-// SendAsync queues analytics for async submission. It takes no context: a call
-// whose context has ended, as when the end user disconnects, still happened, so
-// it is still recorded.
+// SendAsync queues analytics for async submission, and drops them once the
+// collector is closed. It takes no context: a call whose context has ended, as
+// when the end user disconnects, still happened, so it is still recorded.
 func (c *collector) SendAsync(p internal.Payload) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.closed {
+		return
+	}
 	select {
 	case c.queue <- p:
 	default:
@@ -92,9 +101,14 @@ func (c *collector) send(ctx context.Context, p internal.Payload) error {
 	return nil
 }
 
-// Close gracefully shuts down the collector.
+// Close gracefully shuts down the collector. Calling it again does nothing.
 func (c *collector) Close() error {
-	close(c.queue)
+	c.mu.Lock()
+	if !c.closed {
+		c.closed = true
+		close(c.queue)
+	}
+	c.mu.Unlock()
 	<-c.done
 	return nil
 }

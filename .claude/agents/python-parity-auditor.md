@@ -22,19 +22,17 @@ You diff Crystil's Go SDK against its Python reference at `../python-sdk`. Your 
    - Provider integrations (`crystil/_clients.py` ↔ `provider.go` + `transport.go` + `streaming.go`). Note the architectural difference: Python monkey-patches per-provider client methods; Go intercepts at `http.RoundTripper`. The right comparison is "does the **payload** produced by a wrapped Go call match the payload Python produces for the same provider," not "do the wrapping mechanisms match" (they're meant to differ).
    - Streaming (`crystil/_streaming.py`, `_iterator.py`, `_iterable.py`, and `_base.py`'s `fire_stream_payload` ↔ `streaming.go`). Compare the final reconstructed shape per provider, not the chunk-merge algorithm (the algorithms can differ as long as the output matches).
    - Sentinel surface (`crystil/_sentinel.py` ↔ — Go has nothing). This is a documented divergence; flag if user is asking about sentinel specifically, but don't list it on every audit.
-   - Payload shape (`_format_payload` ↔ `transport.go:buildPayload` + `streaming.go:Close` + `langchain.go` handlers). All three Go paths must produce the same `internal.Payload` struct.
+   - Payload shape (`_format_payload` ↔ `transport.go:buildPayload` + `streaming.go:send`). Both Go paths must produce the same `internal.Payload` struct.
    - Network behavior (`Api`/`Collector` ↔ `api.Client` / `collector.go`) — auth header, retry policy, timeouts
    - Env var names — should be identical (`CRYSTIL_API_KEY`, `CRYSTIL_COLLECTOR_URL_BASE`, `CRYSTIL_API_URL_BASE`, `CRYSTIL_TEST_MODE`)
    - Attribution validation rules (`Crystil.attribution` in `crystil/__init__.py` ↔ `attribution.go:validate`)
-   - LangChain integration (`crystil/_clients.py` LangChain wrappers ↔ `langchain.go` callback handler) — note the Python wrappers descend to the inner provider client to record native-shape payloads, while Go's callback handler is response-only and reports `title: "langchain"`. That's a real shape gap; surface it.
+   - LangChain integration (`crystil/_clients.py` LangChain wrappers ↔ `clientInfo` and `langChainTitle` in `transport.go` and `langchain.go`) — both record the native request and response with provider `langchain` and Python's title.
 
 4. **Known intentional divergences (don't flag these as bugs):**
    - Go uses `http.RoundTripper` interception; Python uses monkey-patching. Any "Python has a `register(client)` method that Go is missing" finding belongs in the design-decisions trash, not the audit.
    - Go has no sentinel / `raise_if_irrelevant`. Document gap if user is asking about sentinel.
    - Go has no `pydantic_ai`, Vercel AI SDK, or Groq support (those are Python- or JS-only).
-   - Go's `conversation.client.provider` is always `""` (vs Python sometimes setting `"langchain"` here). Real gap, but acknowledged.
    - Go reads `conversation.client.version` from the build info (`version.go`), not the provider's client object, so it goes out as `null` in `go test` binaries unless the test sets `internal.BuildDeps`. LangChain payloads carry langchaingo's version, where Python sends the version of the SDK LangChain wraps. Real gap, but acknowledged.
-   - Go's LangChain `query` is `{}` (for `HandleLLMEnd`) or `{messages: [{role: "user", content: ""}]}` (for `HandleLLMGenerateContentEnd`) because `langchaingo`'s callback API doesn't surface prompts to the End callback. Real gap, but acknowledged.
    - Go has no retry adapter on the user-facing transport (Python's `_ApiRetryRecoverable` is for control-plane calls; Go's `api.Client` has no retry either — that's a gap to flag if user is auditing the API layer).
    - Go's attribution caps at 100 chars, matching Python (JS caps at 255).
    - Go hides the OpenAI usage chunk it asks for from a caller that did not ask for it (`usageChunkFilter`); Python passes it on. Same payload.

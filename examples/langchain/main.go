@@ -31,18 +31,18 @@ func main() {
 
 	ctx := context.Background()
 
-	// Create Crystil callback handler for LangChain
-	handler := crystilClient.NewLangChainHandler()
-
-	// Create LangChain LLM with Crystil callback
+	// Give LangChain the Crystil HTTP client, as with any provider SDK.
+	// Crystil sees that langchaingo sent the request and records it as LangChain's.
 	llm, err := openai.New(
-		openai.WithCallback(handler),
+		openai.WithModel("gpt-4o-mini"),
+		openai.WithToken(os.Getenv("OPENAI_API_KEY")),
+		openai.WithHTTPClient(crystilClient.HTTPClient(crystil.ProviderOpenAI)),
 	)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	// Use LangChain as normal - analytics tracked automatically via callbacks
+	// Use LangChain as normal - analytics tracked automatically
 	response, err := llms.GenerateFromSinglePrompt(
 		ctx,
 		llm,
@@ -56,12 +56,11 @@ func main() {
 
 	// Create a new transaction for the next request
 	newTxClient := crystilClient.NewTransaction()
-	handler2 := newTxClient.NewLangChainHandler()
 
 	llm2, err := openai.New(
 		openai.WithModel("gpt-4o-mini"),
 		openai.WithToken(os.Getenv("OPENAI_API_KEY")),
-		openai.WithCallback(handler2),
+		openai.WithHTTPClient(newTxClient.HTTPClient(crystil.ProviderOpenAI)),
 	)
 	if err != nil {
 		log.Fatal(err)
@@ -78,5 +77,5 @@ func main() {
 
 	fmt.Printf("Response: %s\n", response2)
 
-	// All LLM calls are automatically tracked through the callback handler!
+	// All LLM calls are automatically tracked through the Crystil HTTP client!
 }

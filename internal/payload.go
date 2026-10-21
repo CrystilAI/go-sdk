@@ -28,13 +28,13 @@ type ClientInfo struct {
 	Version  string
 }
 
-// MarshalJSON sends an empty Version as null, as the other SDKs do.
+// MarshalJSON sends an empty Provider or Version as null, as the other SDKs do.
 func (c ClientInfo) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Provider string  `json:"provider,omitempty"`
+		Provider *string `json:"provider"`
 		Title    string  `json:"title"`
 		Version  *string `json:"version"`
-	}{c.Provider, c.Title, nullIfEmpty(c.Version)})
+	}{nullIfEmpty(c.Provider), c.Title, nullIfEmpty(c.Version)})
 }
 
 // nullIfEmpty returns nil for "", which JSON sends as null.

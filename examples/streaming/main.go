@@ -82,7 +82,7 @@ func streamingOpenAI(ctx context.Context, crystilClient *crystil.Client) {
 	fmt.Println() // New line after stream ends
 
 	// Crystil records the call once the stream is read to its end. If you stop
-	// reading early, close the stream to record it.
+	// reading early, close the stream or end ctx to record it.
 }
 
 func streamingAnthropic(ctx context.Context, crystilClient *crystil.Client) {
