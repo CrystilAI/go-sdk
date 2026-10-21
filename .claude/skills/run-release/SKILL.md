@@ -98,8 +98,10 @@ git log --oneline --no-merges $(git describe --tags --abbrev=0)..HEAD
 Use today's real date. Group under Added / Changed / Fixed / Removed / Deprecated / Security —
 only the headings you actually need. Write what a *consumer of the module* would care about, not
 commit subjects; skip internal CI and refactor churn. Flag breaking changes with **BREAKING** —
-and remember that in Go a breaking change to an exported symbol is a `/v2` module-path change, not
-just a major version number.
+and remember that in Go a breaking change to an exported symbol at v1 or later is a `/v2`
+module-path change, not just a major version number; before v1, it raises the minor version.
+
+If an `## [Unreleased]` section exists, rename it to `## [X.Y.Z] - YYYY-MM-DD` and add to it.
 
 If a `## [X.Y.Z]` section **already exists** — the version was bumped in an earlier PR but never
 released — add to that section and reset its date to today rather than creating a second one.

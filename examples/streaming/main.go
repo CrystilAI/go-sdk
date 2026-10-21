@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/CrystilAI/go-sdk"
+	crystil "github.com/CrystilAI/go-sdk"
 	"github.com/anthropics/anthropic-sdk-go"
 	anthropicOption "github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/openai/openai-go/v3"

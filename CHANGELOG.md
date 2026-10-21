@@ -56,3 +56,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Automated module publishing on release: publishing a GitHub Release now gates on formatting,
   vet, build, and tests, then warms `proxy.golang.org` and `index.golang.org` so the version is
   fetchable and listed on pkg.go.dev immediately
+
+## [Unreleased]

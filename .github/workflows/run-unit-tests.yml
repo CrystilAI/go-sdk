@@ -59,6 +59,15 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # Same checks as the pre-commit hook; keep `version` the same as its rev in .pre-commit-config.yaml.
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.14.0
+
+      - name: Verify go.mod is tidy
+        run: go mod tidy -diff
+
   # Build and test across the toolchain floor plus both currently-supported Go
   # releases. fail-fast is off so a regression on one version doesn't hide the
   # others.

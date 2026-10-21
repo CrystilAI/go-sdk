@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/CrystilAI/go-sdk"
+	crystil "github.com/CrystilAI/go-sdk"
 	"google.golang.org/genai"
 )
 

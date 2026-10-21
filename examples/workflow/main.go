@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/CrystilAI/go-sdk"
+	crystil "github.com/CrystilAI/go-sdk"
 )
 
 func main() {

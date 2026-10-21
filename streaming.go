@@ -169,11 +169,12 @@ func (s *streamingResponseBody) reconstructResponse() map[string]interface{} {
 	}
 
 	// Merge chunks based on provider format
-	if s.provider == ProviderOpenAI {
+	switch s.provider {
+	case ProviderOpenAI:
 		reconstructed = s.reconstructOpenAI(chunks)
-	} else if s.provider == ProviderAnthropic {
+	case ProviderAnthropic:
 		reconstructed = s.reconstructAnthropic(chunks)
-	} else if s.provider == ProviderGoogle {
+	case ProviderGoogle:
 		reconstructed = s.reconstructGoogle(chunks)
 	}
 

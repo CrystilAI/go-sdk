@@ -1,0 +1,35 @@
+# Set up once per clone with `pre-commit install`; run by hand with `pre-commit run --all-files`.
+# The Go checks cover the whole module, not only the staged files: a change in one package
+# can break another, and the `unused` linter needs every file to judge.
+repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v6.0.0
+  hooks:
+    - id: check-yaml
+    - id: end-of-file-fixer
+    - id: trailing-whitespace
+      args: [--markdown-linebreak-ext=md]
+# Keep rev the same as the golangci-lint `version` in .github/workflows/run-unit-tests.yml.
+- repo: https://github.com/golangci/golangci-lint
+  rev: v2.14.0
+  hooks:
+    - id: golangci-lint-config-verify
+    - id: golangci-lint-fmt
+    - id: golangci-lint-full
+      # A go.mod change alone can bring new findings, such as a deprecated API.
+      types: [file]
+      files: '\.go$|^go\.(mod|sum)$'
+- repo: local
+  hooks:
+    - id: go-mod-tidy
+      name: go mod tidy
+      entry: go mod tidy -diff
+      language: system
+      files: '\.go$|^go\.(mod|sum)$'
+      pass_filenames: false
+    - id: go-vet
+      name: go vet
+      entry: go vet ./...
+      language: system
+      files: '\.go$|^go\.(mod|sum)$'
+      pass_filenames: false
