@@ -9,17 +9,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-go test ./...                                     # all tests (init() sets CRYSTIL_TEST_MODE=1 to block network)
+go test ./...                                     # the SDK's tests (init() sets CRYSTIL_TEST_MODE=1 to block network)
 go test -run TestReconstructOpenAI ./...          # one test by name
 go test ./api/...                                 # one package
 go test -race ./...                               # race detector (collector goroutine + attribution mutation)
-go vet ./...
-pre-commit run --all-files                        # gofmt/goimports, golangci-lint (.golangci.yml), go mod tidy -diff, go vet
-go build ./...
-go run ./examples/openai                          # examples are main packages in this module; real API keys
+go -C providertest test ./...                     # tests that drive the real provider SDKs against fake servers
+scripts/in-each-module.sh go test ./...           # the same command in every module
+pre-commit run --all-files                        # gofmt/goimports, golangci-lint (.golangci.yml), go mod tidy -diff, go vet; every module
+go -C examples run ./openai                       # examples make real calls with real API keys
 ```
 
-`CRYSTIL_TEST_MODE` is read at the top of `collector.send` (`collector.go:66`) — when set to any non-empty value, the function returns `nil` immediately without marshalling or POSTing. `langchain_test.go:init()` sets it for the whole test binary, so streaming/transport/langchain tests don't have to set it per-case. If you add a test file that exercises a wrapped HTTP path and `langchain_test.go` is not in the same `go test` invocation, set the env yourself.
+The repo has three Go modules, and `./...` stops at a nested one, so `scripts/in-each-module.sh` runs a command in each: the SDK at the root, whose `go.mod` must list only what the SDK itself imports (today `github.com/google/uuid`, and `github.com/tmc/langchaingo` for `NewLangChainHandler`), and `examples/` and `providertest/`, each with its own `go.mod` and `replace github.com/CrystilAI/go-sdk => ../`. Every line in the SDK's `go.mod` takes part in choosing versions in a customer's build, so the provider SDKs live only in those two. Keep their versions in step with each other and with the "Supported versions" table in `README.md`, which states them as minimums. CI's `test-latest-sdks` job (`run-unit-tests.yml`) runs `providertest/` with each of those modules upgraded to its newest release, so a module added to the table goes in that job's list too.
+
+`CRYSTIL_TEST_MODE` is read at the top of `collector.send` (`collector.go:66`) — when set to any non-empty value, the function returns `nil` immediately without marshalling or POSTing. `langchain_test.go:init()` sets it for the whole test binary, so streaming/transport/langchain tests don't have to set it per-case. If you add a test file that exercises a wrapped HTTP path and `langchain_test.go` is not in the same `go test` invocation, set the env yourself. `providertest/` clears it in `newCollector`, since its tests read what the SDK sends.
 
 ## Runtime + version
 
@@ -37,7 +39,7 @@ This is the single most important thing to understand. **Python and JS monkey-pa
 3. The caller passes the wrapped `*http.Client` to their provider SDK constructor (`openai.NewClient(option.WithHTTPClient(httpClient))`, `anthropic.NewClient(option.WithHTTPClient(httpClient))`, `genai.NewClient(ctx, &genai.ClientConfig{HTTPClient: httpClient, ...})`).
 4. Every HTTP request the provider SDK makes flows through `tracingTransport.RoundTrip`, which (a) reads and replays the request body, (b) detects streaming via `"stream": true` in the JSON body, (c) for non-streaming, reads and replays the response body and fires telemetry, (d) for streaming, replaces `resp.Body` with `streamingResponseBody` so chunks are buffered as the caller reads them and telemetry fires on `Close()`.
 
-The consequence: **the SDK never needs to know the provider's Go method signatures.** Adding a new HTTP-based provider is just (1) adding a `Provider` constant in `provider.go`, (2) routing its SSE reconstruction in `streaming.go:reconstructResponse`, and (3) writing an example. The provider's Go SDK isn't a build dependency unless we use it in tests or examples.
+The consequence: **the SDK never needs to know the provider's Go method signatures.** Adding a new HTTP-based provider is just (1) adding a `Provider` constant in `provider.go`, (2) routing its SSE reconstruction in `streaming.go:reconstructResponse`, and (3) writing an example. The provider's Go SDK is never a dependency of the SDK module; only `examples/` and `providertest/` use it.
 
 The cost: anything that doesn't go over HTTP from the provider SDK to the network — sub-stream callbacks, in-process LangChain runnables, mocked clients in user code — won't be captured by the transport. That's why LangChain has a separate callback-handler path (see below).
 
@@ -58,7 +60,7 @@ RoundTrip(req)
   return resp, nil
 ```
 
-`buildPayload` reads `client.attribution` **dynamically** every call (not at `HTTPClient(...)` time). That's intentional — see `TestHTTPClientMutableAttribution` in `client_test.go`. A caller can `SetAttribution(...)` after the `*http.Client` is in flight and subsequent requests will reflect it.
+`buildPayload` reads `client.attribution` **dynamically** every call (not at `HTTPClient(...)` time). That's intentional — see `TestHTTPClientMutableAttribution` in `providertest/client_test.go`. A caller can `SetAttribution(...)` after the `*http.Client` is in flight and subsequent requests will reflect it.
 
 There is no retry on the LLM request itself. The 5xx retry transport in `collector.go:retryTransport` is wired only into the collector's own HTTP client, not the user-facing `tracingTransport`. **Don't add retry to `tracingTransport`** — the provider SDK owns retry semantics and double-retry produces duplicate LLM charges.
 
@@ -130,7 +132,7 @@ Known intentional divergences:
 - **No `conversation.client.version` reporting.** See "shape" section above — the transport doesn't have a handle on the provider SDK object.
 - **`conversation.client.provider` is always `""`**, including for the LangChain callback path (which sets `title: "langchain"`). Python/JS distinguish framework-vs-provider here; Go currently doesn't.
 - **Two separate code paths for telemetry capture (transport + callback handler) instead of one.** Python/JS have one `Invoke*`-driven path because they monkey-patch and can intercept anywhere; Go needs the callback handler because `langchaingo` doesn't expose its HTTP client. Keep the two paths' payload shapes aligned via `internal.Payload` — they currently emit the same struct.
-- **Test mode skips the POST entirely (no console log).** Python/JS log the payload to stdout in test mode so tests can spy on it; Go just returns `nil` from `collector.send`. Tests assert behavior through other observable state (buffers, start-time maps, etc.) rather than payload contents. If we need payload-shape assertions, the right move is to factor `buildPayload` so tests can call it directly — don't bolt on a stdout-log mode just to mimic Python/JS.
+- **Test mode skips the POST entirely (no console log).** Python/JS log the payload to stdout in test mode so tests can spy on it; Go just returns `nil` from `collector.send`. Tests assert behavior through other observable state (buffers, start-time maps, etc.) rather than payload contents. If we need payload-shape assertions in the root package, the right move is to factor `buildPayload` so tests can call it directly; in `providertest/`, read what its fake collector received. Don't bolt on a stdout-log mode just to mimic Python/JS.
 
 ## Test conventions
 
@@ -138,7 +140,8 @@ Known intentional divergences:
 - **Don't make real HTTP calls in unit tests.** With `CRYSTIL_TEST_MODE` set, the collector won't POST. For tests that need to exercise `tracingTransport.RoundTrip`, build an `http.Client` whose base transport is a `httptest.Server` (preferred) or a stub `RoundTripper` that returns canned responses. The existing tests largely test components in isolation — `reconstructOpenAI` is tested by constructing `streamingResponseBody` directly and calling the method, not by driving HTTP. That pattern is fine when the unit under test doesn't depend on the network path; use `httptest` when it does.
 - **Streaming tests construct `streamingResponseBody` directly with `io.NopCloser(strings.NewReader(...))`** as the reader. See `TestStreamingResponseBodyRead`. The `Close()` method fires `SendAsync` which is then no-op'd by `CRYSTIL_TEST_MODE`; the assertion is on observable state (buffer contents) not on what got sent.
 - **Race detector.** The collector mutates `c.attribution` via `SetAttribution` while `tracingTransport.buildPayload` reads it. Currently neither side locks — there's an implicit happens-before via the user-code ordering, but a multi-goroutine test would race. If you add concurrency, also add the necessary `sync.RWMutex` and prove it under `go test -race`.
-- **Examples are not tests.** `examples/*/main.go` are `package main` programs in this module with no test files, so `go test ./...` doesn't run them. `go build ./...` does build them, and CI runs it to catch an example broken by a library change.
+- **Tests that use a provider SDK go in `providertest/`.** The root package's tests may not import openai-go, anthropic-sdk-go or genai, or those modules land in the SDK's `go.mod`. A `providertest/` test builds the real SDK client on the HTTP client of `newCollector(t)`, points it at an `httptest.Server`, and checks the payloads its fake collector received, as JSON: it is outside the SDK package, so internals are out of reach. See `TestHTTPClientMutableAttribution`.
+- **Examples are not tests.** `examples/*/main.go` are `package main` programs in the `examples/` module, with no test files. `scripts/in-each-module.sh go build ./...` builds them, as CI does, to catch an example broken by a library change.
 
 ## Specialized subagents
 

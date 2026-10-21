@@ -13,8 +13,8 @@ You write Go tests for Crystil's Go SDK following the conventions already in the
 2. **Test at the right level.** Three concentric levels exist; pick the one that matches the unit under test:
    - **Pure function** (`isStreamingRequest`, `reconstructOpenAI`, `Attribution.validate`): call directly with a constructed input; assert on the return value.
    - **`tracingTransport` round-trip** (the actual `RoundTrip` path, with the payload-build side effect): build an `*http.Client` whose base transport is the wrapped one over a `httptest.Server`, make a real HTTP call against the test server, assert on what came back. `CRYSTIL_TEST_MODE` ensures no payload escapes.
-   - **End-to-end via a provider SDK** (`openai.NewClient(option.WithHTTPClient(wrapped))`, then call `Chat.Completions.New(...)`): only when you specifically need to test the provider-SDK wiring. Mock the LLM endpoint with `httptest.Server`. Slow and brittle — avoid unless the test is about the wiring itself.
-3. **Validate observable state, not telemetry contents.** Because `CRYSTIL_TEST_MODE` no-ops the send (rather than logging the payload as Python/JS test mode does), there is **no straightforward way to spy on the payload in a Go test**. Tests assert on the things you *can* observe: the wrapped response body bytes, the `streamingResponseBody.buffer` contents, the `langChainHandler.startTime` map, the reconstructor's return value, etc. If you need to assert on payload contents, factor the code so the payload-build step is callable directly (e.g. `transport.go:buildPayload` is already an unexported method — call it from the test instead of going through `RoundTrip`).
+   - **End-to-end via a provider SDK** (`openai.NewClient(option.WithHTTPClient(wrapped))`, then call `Chat.Completions.New(...)`): when the test is about what a real provider SDK sends or how it reads the response. These go in the `providertest/` module, never in the root package: a root test that imports openai-go, anthropic-sdk-go or genai puts that module in the SDK's `go.mod`, which customers' builds read. Mock the LLM endpoint with `httptest.Server`.
+3. **Validate observable state, not telemetry contents.** Because `CRYSTIL_TEST_MODE` no-ops the send (rather than logging the payload as Python/JS test mode does), there is **no straightforward way to spy on the payload in a Go test**. Tests assert on the things you *can* observe: the wrapped response body bytes, the `streamingResponseBody.buffer` contents, the `langChainHandler.startTime` map, the reconstructor's return value, etc. If you need to assert on payload contents, factor the code so the payload-build step is callable directly (e.g. `transport.go:buildPayload` is already an unexported method — call it from the test instead of going through `RoundTrip`). In `providertest/`, build the client with `newCollector(t)`, whose client sends to a fake collector, and read the payloads it received.
 
 ## Conventions you must follow
 
@@ -89,7 +89,7 @@ defer client.Close()
 
 ### Mock provider SDKs (when end-to-end is needed)
 
-Don't mock by writing a fake `openai` package — the existing tests import the real one (`github.com/openai/openai-go/v3`) but configure it to call a `httptest.Server`. That gives real serialization, real request construction, real response parsing. See `TestHTTPClientWithAttribution` for the pattern (it stops short of actually calling, but the wiring is shown).
+Don't mock by writing a fake `openai` package — the tests in `providertest/` import the real one (`github.com/openai/openai-go/v3`) but configure it to call a `httptest.Server`. That gives real serialization, real request construction, real response parsing. See `TestHTTPClientMutableAttribution` for the pattern.
 
 ### Sub-package tests (`api/`)
 
@@ -98,12 +98,13 @@ If you add tests in `api/`, that's a separate test binary and needs its own `ini
 ## File placement
 
 - Unit tests: `<topic>_test.go` in the same package as the code under test. Run by default in `go test ./...`.
+- Tests that use a provider SDK: `providertest/<topic>_test.go`, in that module. Run with `go -C providertest test ./...`.
 - Don't write tests that require live API keys; the SDK doesn't have a "live integration" tier in CI today. If you need that, propose adding an environment-gated test (`if os.Getenv("CRYSTIL_LIVE_TESTS") == ""  { t.Skip(...) }`) and document the required env vars.
 
 ## Definition of done
 
 - Test passes: `go test -run <YourTestName> ./...`
-- Test passes alongside the rest: `go test ./...`
+- Test passes alongside the rest: `scripts/in-each-module.sh go test ./...`
 - Test passes under `-race`: `go test -race ./...`
-- `go vet ./...` clean.
+- `scripts/in-each-module.sh go vet ./...` clean, and the SDK's `go.mod` still lists only what the SDK itself imports.
 - No real network requests — verify by running offline if you can, or by inspecting the test for any `http.Get`/`Post` that doesn't target `httptest.Server.URL`.

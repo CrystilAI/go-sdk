@@ -19,6 +19,18 @@ Sign up here: [app.crystil.com](https://app.crystil.com/)
 
     go get github.com/CrystilAI/go-sdk
 
+# Supported versions
+
+**Go:** 1.24 or later. We test Go 1.24, 1.25 and 1.26.
+
+**Provider SDKs:** the Crystil SDK doesn't directly depend on any particular AI provider SDK or version. We test with the versions below; later releases of the same major version are expected to work.
+
+| Calls through | Go module | Minimum version |
+|---|---|---|
+| OpenAI | `github.com/openai/openai-go/v3` | v3.2.0 |
+| Anthropic | `github.com/anthropics/anthropic-sdk-go` | v1.13.0 |
+| Google Gemini and Vertex AI | `google.golang.org/genai` | v1.29.0 |
+
 # Documentation
 
 Our SDK reference provides documentation for:

@@ -20,8 +20,9 @@ This means adding a new provider almost never requires touching `client.go`, `tr
 2. **Adding a new provider is, in order:**
    - Add a `Provider` constant in `provider.go` (`const ProviderXxx Provider = "xxx"`). The string value becomes `conversation.client.title` in the payload, so it must match Python.
    - If the provider supports streaming **and its SSE event shape isn't already handled**, add a `reconstructXxx` method to `streamingResponseBody` in `streaming.go` and route to it from `reconstructResponse`. The reconstructed shape must structurally match what the provider returns from its *non-streaming* endpoint — that's the contract the backend extractor expects. Delegate to the `streaming-reconstructor` agent for the shape work.
-   - Add an integration example under `examples/<provider>/main.go` showing the wiring (`crystilClient.HTTPClient(crystil.ProviderXxx)` → provider SDK constructor).
-   - Add a unit test that constructs an `*http.Client` with the wrapped transport and exercises it against a `httptest.Server` returning a canned response of that provider's shape. Delegate to `sdk-test-author` if needed.
+   - Add an example under `examples/<provider>/main.go`, in the `examples/` module, showing the wiring (`crystilClient.HTTPClient(crystil.ProviderXxx)` → provider SDK constructor).
+   - Add a test in `providertest/` that builds the provider's SDK client on `newCollector(t)`'s HTTP client and calls a `httptest.Server` returning a canned response of that provider's shape. Delegate to `sdk-test-author` if needed.
+   - Add the provider SDK's module, at the version `providertest/` pins, to the "Supported versions" table in `README.md`, and to the `test-latest-sdks` job's list in `.github/workflows/run-unit-tests.yml`.
 
 3. **Don't add `register(client)` style APIs.** Suggestions like "let's also have `crystil.OpenAI.Register(openaiClient)`" exist in Python/JS because monkey-patching requires it. In Go, the right hook is `*http.Client` injection. If a provider's Go SDK doesn't accept an HTTP-client option, see rule 4.
 
@@ -37,8 +38,9 @@ This means adding a new provider almost never requires touching `client.go`, `tr
 
 ## Definition of done
 
-- `go vet ./... && go test -race ./...` clean.
-- `go build ./examples/...` clean (examples compile against the changed library surface).
+- `scripts/in-each-module.sh go vet ./...` and `scripts/in-each-module.sh go test -race ./...` clean.
+- `scripts/in-each-module.sh go build ./...` clean (the examples module compiles against the changed library surface).
+- The SDK's `go.mod` still lists only what the SDK imports; the provider's SDK goes in `examples/` and `providertest/` only.
 - Provider's `title` string in `provider.go` matches Python's constant in `../python-sdk/crystil/_constants.py`.
 - Streaming reconstruction produces a payload `conversation.response` that structurally matches the provider's non-streaming response shape (test against a recorded fixture if you can).
 - CLAUDE.md "Streaming reconstruction" table updated if you added or changed a provider's event shape.

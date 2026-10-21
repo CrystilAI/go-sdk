@@ -123,10 +123,10 @@ SDKs: the workflow's copy of these checks runs *after* the tag is already public
 run is the only one that can still prevent a bad release.**
 
 ```bash
-gofmt -l .                       # must print nothing
-go vet ./...
-go build ./...                   # includes ./examples/... — where renames surface first
-CRYSTIL_TEST_MODE=1 go test ./...
+gofmt -l .                                                  # must print nothing
+scripts/in-each-module.sh go vet ./...
+scripts/in-each-module.sh go build ./...                    # every module, including examples/, where renames surface first
+CRYSTIL_TEST_MODE=1 scripts/in-each-module.sh go test ./...
 ```
 
 Then wait for the PR's own checks, if any are configured:

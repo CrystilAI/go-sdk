@@ -1,14 +1,9 @@
 package crystil
 
 import (
-	"context"
 	"os"
 	"testing"
 	"time"
-
-	"github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/option"
-	"google.golang.org/genai"
 )
 
 func TestNew(t *testing.T) {
@@ -222,91 +217,6 @@ func TestHTTPClient(t *testing.T) {
 				t.Errorf("Expected non-nil transport for %s", tt.provider)
 			}
 		})
-	}
-}
-
-func TestHTTPClientWithAttribution(t *testing.T) {
-	client, err := New(WithAPIKey("test-key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close()
-
-	// Set attribution
-	testUser := "Test User"
-	err = client.SetAttribution(&Attribution{
-		ParentID:   "user-123",
-		ParentName: &testUser,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Create HTTP client
-	httpClient := client.HTTPClient(ProviderOpenAI)
-
-	// Create OpenAI client - verifies HTTPClient works with OpenAI
-	_ = openai.NewClient(
-		option.WithHTTPClient(httpClient),
-		option.WithAPIKey("sk-test-key"),
-	)
-}
-
-func TestHTTPClientMutableAttribution(t *testing.T) {
-	client, err := New(WithAPIKey("test-key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close()
-
-	// Create HTTP client before setting attribution
-	httpClient := client.HTTPClient(ProviderOpenAI)
-
-	// Create OpenAI client - verifies HTTPClient works before attribution is set
-	_ = openai.NewClient(
-		option.WithHTTPClient(httpClient),
-		option.WithAPIKey("sk-test-key"),
-	)
-
-	// Now set attribution - should affect future requests through the same httpClient
-	updatedUser := "Updated User"
-	err = client.SetAttribution(&Attribution{
-		ParentID:   "user-456",
-		ParentName: &updatedUser,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Verify attribution was set
-	if client.attribution == nil {
-		t.Error("Expected attribution to be set")
-	}
-	if client.attribution.ParentID != "user-456" {
-		t.Errorf("Expected attribution ID user-456, got %s", client.attribution.ParentID)
-	}
-}
-
-func TestRegisterGoogle(t *testing.T) {
-	client, err := New(WithAPIKey("test-key"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer client.Close()
-
-	ctx := context.Background()
-	httpClient := client.HTTPClient(ProviderGoogle)
-
-	googleClient, err := genai.NewClient(ctx, &genai.ClientConfig{
-		HTTPClient: httpClient,
-		APIKey:     "test-google-key",
-		Backend:    genai.BackendGeminiAPI,
-	})
-	if err != nil {
-		t.Fatalf("genai.NewClient() error = %v", err)
-	}
-	if googleClient == nil {
-		t.Error("Expected Google client to be non-nil")
 	}
 }
 
