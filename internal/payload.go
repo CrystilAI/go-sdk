@@ -1,6 +1,9 @@
 package internal
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Payload represents analytics data sent to Crystil.
 type Payload struct {
@@ -51,8 +54,22 @@ type SDKInfo struct {
 
 // TimeInfo contains timing information.
 type TimeInfo struct {
-	Start time.Time `json:"start"`
-	End   time.Time `json:"end"`
+	Start time.Time
+	End   time.Time
+}
+
+// MarshalJSON sends the times as Unix seconds, as the other SDKs do: the
+// backend reads them with fromtimestamp, which rejects a string.
+func (t TimeInfo) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Start float64 `json:"start"`
+		End   float64 `json:"end"`
+	}{unixSeconds(t.Start), unixSeconds(t.End)})
+}
+
+// unixSeconds returns t in Unix seconds, to the microsecond like Python's time.time().
+func unixSeconds(t time.Time) float64 {
+	return float64(t.UnixMicro()) / 1e6
 }
 
 // Transaction contains transaction UUID.

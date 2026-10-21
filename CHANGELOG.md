@@ -71,3 +71,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reads.
 - Gemini streams, and event streams the request does not flag, reach the caller as they arrive.
 - A response body cut short made openai-go and anthropic-sdk-go send the call again.
+- The backend rejected every Go payload, whose times were strings: they are now Unix seconds.
