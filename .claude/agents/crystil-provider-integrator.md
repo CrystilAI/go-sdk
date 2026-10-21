@@ -24,6 +24,7 @@ This means adding a new provider almost never requires touching `client.go`, `tr
    - If langchaingo has an LLM package for the provider, add it to `langChainLLMs` (`langchain.go`) with the title Python sends for that LangChain class and the provider it calls.
    - Add an example under `examples/<provider>/main.go`, in the `examples/` module, showing the wiring (`crystilClient.HTTPClient(crystil.ProviderXxx)` → provider SDK constructor).
    - Add a test in `providertest/` that builds the provider's SDK client on `newCollector(t)`'s HTTP client and calls a `httptest.Server` returning a canned response of that provider's shape. Delegate to `sdk-test-author` if needed.
+   - Add a live test file under `integration/` (plain, streamed and tool calls), its key to `.env.example`, and its secret to `.github/workflows/run-integration-tests.yaml`. Don't run it unless the user asks.
    - Add the provider SDK's module, at the version `providertest/` pins, to the "Supported versions" table in `README.md`, and to the `test-latest-sdks` job's list in `.github/workflows/run-unit-tests.yml`.
 
 3. **Don't add `register(client)` style APIs.** Suggestions like "let's also have `crystil.OpenAI.Register(openaiClient)`" exist in Python/JS because monkey-patching requires it. In Go, the right hook is `*http.Client` injection. If a provider's Go SDK doesn't accept an HTTP-client option, see rule 4.
@@ -40,9 +41,9 @@ This means adding a new provider almost never requires touching `client.go`, `tr
 
 ## Definition of done
 
-- `scripts/in-each-module.sh go vet ./...` and `scripts/in-each-module.sh go test -race ./...` clean.
+- `scripts/in-each-module.sh go vet -tags integration ./...` and `scripts/in-each-module.sh go test -race ./...` clean.
 - `scripts/in-each-module.sh go build ./...` clean (the examples module compiles against the changed library surface).
-- The SDK's `go.mod` still lists only what the SDK imports; the provider's SDK goes in `examples/` and `providertest/` only.
+- The SDK's `go.mod` still lists only what the SDK imports; the provider's SDK goes in `examples/`, `integration/` and `providertest/` only.
 - Provider's `title` string in `provider.go` matches Python's constant in `../python-sdk/crystil/_constants.py`.
 - A streamed payload's `conversation.response` matches what the Python SDK records for the same stream (test against a fixture in `../backend/payloads/collector/` if you can).
 - CLAUDE.md "Streaming reconstruction" table updated if you added or changed a provider's event shape.

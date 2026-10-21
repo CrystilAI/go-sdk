@@ -34,7 +34,7 @@ The Python SDK in `../python-sdk` is the reference version. Before adding a feat
 scripts/in-each-module.sh go build ./...
 ```
 
-The repo has three Go modules: the SDK at the root, and `examples/` and `providertest/`, which use the provider SDKs. Each has its own `go.mod`, so the provider SDKs stay out of the SDK's: every line in that file takes part in choosing versions in a customer's build. A root `go build ./...` stops at the nested modules, so the script runs the command in each one. Inside a module, plain `./...` works.
+The repo has several Go modules: the SDK at the root, and `examples/`, `integration/` and `providertest/`, which use the provider SDKs. Each has its own `go.mod`, so the provider SDKs stay out of the SDK's: every line in that file takes part in choosing versions in a customer's build. A root `go build ./...` stops at the nested modules, so the script runs the command in each one. Inside a module, plain `./...` works.
 
 The pre-commit hook runs CI's other checks in every module on each commit: formatting (`gofmt`, `goimports`), [golangci-lint](https://golangci-lint.run) with the settings in `.golangci.yml`, `go mod tidy` and `go vet`. Formatting and lint fixes are written to your files and fail the commit; stage them and commit again. To run the checks without committing:
 
@@ -44,6 +44,8 @@ pre-commit run --all-files
 
 ### Run an example
 
+The examples are documentation: each shows a customer how to use part of the SDK, and CI builds them so a change can't break one unnoticed. They are not tests. To check a change against staging or a local collector, write or run an [integration test](#integration-tests).
+
 The examples make real LLM calls, which cost money. They send telemetry to the collector at `CRYSTIL_COLLECTOR_URL_BASE`, or to production (`https://collector.crystil.com`) when it is unset. The `workflow` and `invocation` examples also call the API at `CRYSTIL_API_URL_BASE`, or `https://api.crystil.com`. Every example reads `CRYSTIL_API_KEY`, which must belong to the same environment. Most also need their provider's key:
 
 | Example | Provider key |
@@ -51,6 +53,7 @@ The examples make real LLM calls, which cost money. They send telemetry to the c
 | `openai`, `streaming`, `transactions`, `langchain`, `invocation` | `OPENAI_API_KEY` |
 | `anthropic` | `ANTHROPIC_API_KEY` |
 | `google`, `langchain-google` | `GOOGLE_API_KEY` |
+| `google-vertex` | Google credentials (`GOOGLE_APPLICATION_CREDENTIALS`, or `gcloud auth application-default login`), and `GOOGLE_CLOUD_PROJECT` unless the credentials file names it |
 | `workflow` | none |
 
 ```bash
@@ -75,7 +78,21 @@ go -C providertest test ./...                                 # the tests that u
 CRYSTIL_TEST_MODE=1 scripts/in-each-module.sh go test -race ./...  # every module, as CI runs them
 ```
 
-The tests in `providertest/` drive the real provider SDKs (openai-go, anthropic-sdk-go, genai, langchaingo) through the SDK and check what a fake collector receives; they clear `CRYSTIL_TEST_MODE` for it. None of these tests call an LLM provider or a Crystil service: they use local `httptest` servers or call the code directly. This repo has no integration tests against real providers.
+The tests in `providertest/` drive the real provider SDKs (openai-go, anthropic-sdk-go, genai, langchaingo) through the SDK and check what a fake collector receives; they clear `CRYSTIL_TEST_MODE` for it. None of these tests call an LLM provider or a Crystil service: they use local `httptest` servers or call the code directly. The integration tests below make the live calls.
+
+### Integration tests
+
+The tests in `integration/` call OpenAI, Anthropic, Gemini and Vertex AI through the SDK, and check that a real Crystil collector accepts each payload. Each run costs money, so they never run by default: they build only with the `integration` tag, and they skip unless `CRYSTIL_COLLECTOR_URL_BASE` names the collector. A provider whose key is unset is skipped. Copy `.env.example` to `.env` and fill in what you need; it lists every variable the tests read.
+
+```bash
+set -a; . ./.env; set +a                                                 # Go doesn't load .env itself
+go -C integration test -tags integration -v -count=1 ./...              # all providers
+go -C integration test -tags integration -v -count=1 -run TestGemini ./... # one provider
+```
+
+`-count=1` stops Go from reusing a cached result instead of calling the providers. With `CRYSTIL_DUMP_RESPONSES=1`, each payload is also written to `integration/output/`, with the Crystil API key masked.
+
+To run them against staging on GitHub, start the **Run Integration Tests** workflow from the repo's Actions tab. It reads the `STAGING_*` secrets named in `.github/workflows/run-integration-tests.yaml`.
 
 ### CI
 
@@ -84,6 +101,8 @@ The tests in `providertest/` drive the real provider SDKs (openai-go, anthropic-
 - **Lint:** `gofmt`, `go vet`, golangci-lint and a check that each `go.mod` is tidy, in every module.
 - **Test:** `go build ./...` and `go test -race ./...` in every module, on each Go version in the workflow's matrix: the `go.mod` version and the newer releases Go still supports.
 - **Test (latest provider SDKs):** the `providertest/` tests again, with each provider SDK upgraded to its newest release, on the newest Go. The versions the modules pin are the minimums `README.md` states; this job checks the newest ones.
+
+The integration tests run only when started by hand, as described above.
 
 ## Release to the public repository
 

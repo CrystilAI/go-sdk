@@ -90,12 +90,12 @@ If you add tests in `api/`, that's a separate test binary and needs its own `ini
 
 - Unit tests: `<topic>_test.go` in the same package as the code under test. Run by default in `go test ./...`.
 - Tests that use a provider SDK: `providertest/<topic>_test.go`, in that module. Run with `go -C providertest test ./...`.
-- Don't write tests that require live API keys; the SDK doesn't have a "live integration" tier in CI today. If you need that, propose adding an environment-gated test (`if os.Getenv("CRYSTIL_LIVE_TESTS") == ""  { t.Skip(...) }`) and document the required env vars.
+- Tests that need live API keys go in `integration/` only, behind the `integration` build tag; follow "Integration tests" under Test conventions in CLAUDE.md. Never run them unless the user asks: they cost money.
 
 ## Definition of done
 
 - Test passes: `go test -run <YourTestName> ./...`
 - Test passes alongside the rest: `scripts/in-each-module.sh go test ./...`
 - Test passes under `-race`: `go test -race ./...`
-- `scripts/in-each-module.sh go vet ./...` clean, and the SDK's `go.mod` still lists only what the SDK itself imports.
+- `scripts/in-each-module.sh go vet -tags integration ./...` clean, and the SDK's `go.mod` still lists only what the SDK itself imports.
 - No real network requests — verify by running offline if you can, or by inspecting the test for any `http.Get`/`Post` that doesn't target `httptest.Server.URL`.

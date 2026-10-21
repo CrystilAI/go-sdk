@@ -20,8 +20,7 @@ func TestNew(t *testing.T) {
 	tests := []struct {
 		name    string
 		opts    []Option
-		setup   func()
-		cleanup func()
+		envKey  string // CRYSTIL_API_KEY for the case, whatever the shell has
 		wantErr bool
 	}{
 		{
@@ -35,14 +34,9 @@ func TestNew(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "from environment variable",
-			opts: []Option{},
-			setup: func() {
-				os.Setenv("CRYSTIL_API_KEY", "env-test-key")
-			},
-			cleanup: func() {
-				os.Unsetenv("CRYSTIL_API_KEY")
-			},
+			name:    "from environment variable",
+			opts:    []Option{},
+			envKey:  "env-test-key",
 			wantErr: false,
 		},
 		{
@@ -54,12 +48,7 @@ func TestNew(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.setup != nil {
-				tt.setup()
-			}
-			if tt.cleanup != nil {
-				defer tt.cleanup()
-			}
+			t.Setenv("CRYSTIL_API_KEY", tt.envKey)
 
 			client, err := New(tt.opts...)
 			if (err != nil) != tt.wantErr {

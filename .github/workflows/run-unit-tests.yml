@@ -57,10 +57,11 @@ jobs:
             exit 1
           fi
 
-      # Each step covers every module: the SDK, and examples/ and providertest/,
-      # which have their own go.mod.
+      # Each step covers every module: the SDK, and examples/, integration/ and
+      # providertest/, which have their own go.mod. The tag compiles the live
+      # tests in integration/ too; it runs none of them.
       - name: Vet
-        run: scripts/in-each-module.sh go vet ./...
+        run: scripts/in-each-module.sh go vet -tags integration ./...
 
       # Same checks as the pre-commit hook; keep `version` the same as its rev in .pre-commit-config.yaml.
       - name: Install golangci-lint
