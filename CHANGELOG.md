@@ -57,7 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   vet, build, and tests, then warms `proxy.golang.org` and `index.golang.org` so the version is
   fetchable and listed on pkg.go.dev immediately
 
-## [Unreleased]
+## [0.3.0] - 2026-10-22
 
 ### Removed
 - **BREAKING**: `Client.NewLangChainHandler`. Pass `crystilClient.HTTPClient(provider)` to
