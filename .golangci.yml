@@ -1,0 +1,19 @@
+version: "2"
+
+run:
+  # Also lint the live tests in integration/, which build only with this tag.
+  build-tags:
+    - integration
+
+linters:
+  # errcheck, govet, ineffassign, staticcheck, unused
+  default: standard
+  exclusions:
+    presets:
+      # Unchecked errors Go code ignores by custom: Close, Flush, os.Setenv, printing.
+      - std-error-handling
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

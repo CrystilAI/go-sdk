@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/CrystilAI/go-sdk"
+	crystil "github.com/CrystilAI/go-sdk"
 	"github.com/anthropics/anthropic-sdk-go"
 	anthropicOption "github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/openai/openai-go/v3"
@@ -22,17 +22,18 @@ func main() {
 	}
 	defer crystilClient.Close()
 
-	// Set attribution to track costs by user
+	ctx := context.Background()
+
+	// Set attribution to track costs by user. It rides in ctx, so it applies to
+	// the calls made with ctx
 	streamingUser := "Streaming User"
-	err = crystilClient.SetAttribution(&crystil.Attribution{
+	ctx, err = crystil.SetAttribution(ctx, &crystil.Attribution{
 		ParentID:   "user-streaming",
 		ParentName: &streamingUser,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	ctx := context.Background()
 
 	// Example 1: OpenAI Streaming
 	fmt.Println("=== OpenAI Streaming ===")
@@ -81,8 +82,8 @@ func streamingOpenAI(ctx context.Context, crystilClient *crystil.Client) {
 
 	fmt.Println() // New line after stream ends
 
-	// Analytics are automatically sent when the stream closes!
-	// The SDK accumulates chunks and reconstructs the complete response.
+	// Crystil records the call once the stream is read to its end. If you stop
+	// reading early, close the stream or end ctx to record it.
 }
 
 func streamingAnthropic(ctx context.Context, crystilClient *crystil.Client) {

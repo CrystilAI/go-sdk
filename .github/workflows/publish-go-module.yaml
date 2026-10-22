@@ -107,8 +107,8 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      # Builds every package including ./examples/..., which is where a rename
-      # or a dropped import surfaces first.
+      # Builds the published module. The examples are their own module, which
+      # run-unit-tests.yml builds on every pull request.
       - name: Build
         run: go build ./...
 

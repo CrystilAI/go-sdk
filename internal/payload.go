@@ -1,10 +1,13 @@
 package internal
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Payload represents analytics data sent to Crystil.
 type Payload struct {
-	Attribution  interface{}  `json:"attribution,omitempty"`
+	Attribution  interface{}  `json:"attribution"` // null when unset: the backend rejects a payload without it
 	Conversation Conversation `json:"conversation"`
 	Meta         Meta         `json:"meta"`
 	Time         TimeInfo     `json:"time"`
@@ -15,14 +18,31 @@ type Payload struct {
 type Conversation struct {
 	Client   ClientInfo             `json:"client"`
 	Query    map[string]interface{} `json:"query"`
-	Response map[string]interface{} `json:"response"`
+	Response interface{}            `json:"response"` // an object, or for some streams the list of events
 }
 
 // ClientInfo describes the LLM provider client.
 type ClientInfo struct {
-	Provider string `json:"provider,omitempty"`
-	Title    string `json:"title"`
-	Version  string `json:"version,omitempty"`
+	Provider string
+	Title    string
+	Version  string
+}
+
+// MarshalJSON sends an empty Provider or Version as null, as the other SDKs do.
+func (c ClientInfo) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Provider *string `json:"provider"`
+		Title    string  `json:"title"`
+		Version  *string `json:"version"`
+	}{nullIfEmpty(c.Provider), c.Title, nullIfEmpty(c.Version)})
+}
+
+// nullIfEmpty returns nil for "", which JSON sends as null.
+func nullIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 // Meta contains metadata about the request.
@@ -51,8 +71,22 @@ type SDKInfo struct {
 
 // TimeInfo contains timing information.
 type TimeInfo struct {
-	Start time.Time `json:"start"`
-	End   time.Time `json:"end"`
+	Start time.Time
+	End   time.Time
+}
+
+// MarshalJSON sends the times as Unix seconds, as the other SDKs do: the
+// backend reads them with fromtimestamp, which rejects a string.
+func (t TimeInfo) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Start float64 `json:"start"`
+		End   float64 `json:"end"`
+	}{unixSeconds(t.Start), unixSeconds(t.End)})
+}
+
+// unixSeconds returns t in Unix seconds, to the microsecond like Python's time.time().
+func unixSeconds(t time.Time) float64 {
+	return float64(t.UnixMicro()) / 1e6
 }
 
 // Transaction contains transaction UUID.

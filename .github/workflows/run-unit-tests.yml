@@ -43,6 +43,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+          cache-dependency-path: '**/go.sum'
 
       # gofmt exits 0 even when it has reformatting to report, so the failure
       # has to be derived from its output. Same form as the publish workflow.
@@ -56,8 +57,24 @@ jobs:
             exit 1
           fi
 
+      # Each step covers every module: the SDK, and examples/, integration/ and
+      # providertest/, which have their own go.mod. The tag compiles the live
+      # tests in integration/ too; it runs none of them.
       - name: Vet
-        run: go vet ./...
+        run: scripts/in-each-module.sh go vet -tags integration ./...
+
+      # Same checks as the pre-commit hook; keep `version` the same as its rev in .pre-commit-config.yaml.
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.14.0
+          install-only: true
+
+      - name: golangci-lint
+        run: scripts/in-each-module.sh golangci-lint run
+
+      - name: Verify every go.mod is tidy
+        run: scripts/in-each-module.sh go mod tidy -diff
 
   # Build and test across the toolchain floor plus both currently-supported Go
   # releases. fail-fast is off so a regression on one version doesn't hide the
@@ -82,15 +99,51 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go }}
+          cache-dependency-path: '**/go.sum'
 
-      # Builds every package including ./examples/..., which is where a rename
-      # or a dropped import surfaces first — the v0.2.0 rename left all seven
+      # Builds every module, including examples/, which is where a rename or a
+      # dropped import surfaces first — the v0.2.0 rename left all seven
       # examples failing to compile.
       - name: Build
-        run: go build ./...
+        run: scripts/in-each-module.sh go build ./...
 
-      # CRYSTIL_TEST_MODE=1 keeps the collector from posting anywhere real.
+      # CRYSTIL_TEST_MODE=1 keeps the collector from posting anywhere real;
+      # providertest/ clears it for its fake collector. -race catches a stream
+      # read and closed at once (TestStreamClosedWhileRead).
       - name: Test
         env:
           CRYSTIL_TEST_MODE: '1'
-        run: go test ./...
+        run: scripts/in-each-module.sh go test -race ./...
+
+  # The job above tests the provider SDK versions providertest/go.mod pins, the
+  # minimums README.md states. This one tests their newest releases, which can
+  # need a newer Go than go.mod's, so it runs on the newest Go.
+  test-latest-sdks:
+    name: Test (latest provider SDKs)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache-dependency-path: '**/go.sum'
+
+      # Changes only this run's copy of go.mod. Keep the list the same as the
+      # modules in README.md's "Supported versions" table.
+      - name: Upgrade the provider SDKs
+        working-directory: providertest
+        run: |
+          go get \
+            github.com/openai/openai-go/v3@latest \
+            github.com/anthropics/anthropic-sdk-go@latest \
+            google.golang.org/genai@latest \
+            github.com/tmc/langchaingo@latest
+          go mod tidy
+          grep -E 'openai-go|anthropic-sdk-go|google.golang.org/genai|langchaingo' go.mod
+
+      - name: Test
+        working-directory: providertest
+        run: go test -race ./...

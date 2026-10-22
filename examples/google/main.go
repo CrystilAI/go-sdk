@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/CrystilAI/go-sdk"
+	crystil "github.com/CrystilAI/go-sdk"
 	"google.golang.org/genai"
 )
 
@@ -32,9 +32,10 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Set attribution to track costs by user (affects all future requests)
+	// Set attribution to track costs by user. It rides in ctx, so it applies to
+	// the calls made with ctx
 	aliceJohnson := "Alice Johnson"
-	err = crystilClient.SetAttribution(&crystil.Attribution{
+	ctx, err = crystil.SetAttribution(ctx, &crystil.Attribution{
 		ParentID:   "user-789",
 		ParentName: &aliceJohnson,
 	})
@@ -62,9 +63,9 @@ func main() {
 		}
 	}
 
-	// Update attribution for a different user (affects same googleClient)
+	// Attribute the next request to a different user, through the same googleClient
 	charlieBrown := "Charlie Brown"
-	err = crystilClient.SetAttribution(&crystil.Attribution{
+	ctx, err = crystil.SetAttribution(ctx, &crystil.Attribution{
 		ParentID:   "user-101",
 		ParentName: &charlieBrown,
 	})

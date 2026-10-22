@@ -1,0 +1,57 @@
+name: Run Integration Tests
+
+# Manual-only: these tests call live LLM provider APIs and the Crystil staging
+# collector, so each run costs real money. Mirrors the workflow of the same name
+# in ../python-sdk, ../javascript-sdk and ../ruby-sdk.
+
+on:
+  # Listed so the workflow is easy to find in the Actions UI; the job below runs
+  # only when started by hand.
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration-tests:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+
+    env:
+      # --- Crystil (point the SDK at staging) ---
+      CRYSTIL_API_KEY: ${{ secrets.STAGING_CRYSTIL_API_KEY }}
+      CRYSTIL_API_URL_BASE: https://staging-api.crystil.com
+      CRYSTIL_COLLECTOR_URL_BASE: https://staging-collector.crystil.com
+
+      # --- LLM provider keys; a test whose key is unset is skipped ---
+      OPENAI_API_KEY: ${{ secrets.STAGING_OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.STAGING_ANTHROPIC_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.STAGING_GOOGLE_API_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: '**/go.sum'
+
+      # TestVertex skips unless GOOGLE_APPLICATION_CREDENTIALS is set; its project
+      # comes from this service-account file.
+      - name: Write Google service-account credentials to disk
+        env:
+          CREDENTIALS_BASE64: ${{ secrets.STAGING_GOOGLE_APPLICATION_CREDENTIALS_FILE_CONTENTS_BASE64_ENCODED }}
+        run: |
+          if [ -n "$CREDENTIALS_BASE64" ]; then
+            echo "$CREDENTIALS_BASE64" | base64 -d > "$RUNNER_TEMP/google-credentials.json"
+            echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/google-credentials.json" >> "$GITHUB_ENV"
+          fi
+
+      # -v names each skipped test and the variable it is missing.
+      - name: Run integration tests
+        run: go -C integration test -tags integration -v -count=1 ./...

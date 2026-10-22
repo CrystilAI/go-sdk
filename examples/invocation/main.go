@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/CrystilAI/go-sdk"
+	crystil "github.com/CrystilAI/go-sdk"
 	"github.com/CrystilAI/go-sdk/api"
 )
 
